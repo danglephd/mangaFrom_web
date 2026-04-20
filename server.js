@@ -4,10 +4,42 @@ const fs = require('fs');
 const dotenv = require('dotenv');
 const { chromium } = require('playwright');
 const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose();
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Database setup
+const dbPath = path.join(__dirname, 'mangaFrom_web.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Error opening database:', err.message);
+  } else {
+    console.log('Connected to SQLite database');
+    // Create history table if it doesn't exist
+    db.run(`
+      CREATE TABLE IF NOT EXISTS download_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        series_name TEXT NOT NULL,
+        chapter INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,
+        UNIQUE(folder, url)
+      )
+    `, (err) => {
+      if (err) {
+        console.error('Error creating table:', err.message);
+      } else {
+        console.log('Download history table ready');
+      }
+    });
+  }
+});
+
+// In-memory store for downloaded chapters (serves as server-side tracking)
+const downloadedChapters = new Map();
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -18,6 +50,87 @@ const downloadsDir = path.join(__dirname, 'downloads');
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir, { recursive: true });
 }
+
+// Root route - serve index.html
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ====== API: Download Series ======
+app.post('/api/download-series', async (req, res) => {
+  try {
+    const { url, folder, startChapter = 1, seriesName = folder } = req.body;
+
+    if (!url || !folder) {
+      return res.status(400).json({ error: 'URL and folder are required' });
+    }
+
+    const browser = await chromium.launch();
+    const page = await browser.newPage();
+
+    let currentUrl = url;
+    const visited = new Set();
+    let chapterIndex = parseInt(startChapter) || 1;
+    const results = [];
+
+    while (currentUrl && !visited.has(currentUrl)) {
+      console.log(`[Series] Chapter ${chapterIndex}: ${currentUrl}`);
+      visited.add(currentUrl);
+
+      // Create chapter folder with format Chap_XXX
+      const chapterFolder = `${folder}/Chap_${String(chapterIndex).padStart(3, '0')}`;
+      let chapterResult;
+
+      // Download normally
+      await page.goto(currentUrl, {
+        waitUntil: 'networkidle',
+        timeout: 60000,
+      });
+
+      // Delay after loading
+      await new Promise((r) => setTimeout(r, 1500));
+
+      // Download images for this chapter
+      chapterResult = await downloadImagesFromPage(page, {
+        url: currentUrl,
+        folder: chapterFolder,
+        seriesName,
+        chapter: chapterIndex,
+      });
+
+      results.push({
+        chapter: chapterIndex,
+        url: currentUrl,
+        ...chapterResult,
+      });
+
+      // Get next chapter link
+      const nextLink = await getNextChapterLink(page);
+
+      if (!nextLink) {
+        console.log('[Series] Reached last chapter');
+        break;
+      }
+
+      currentUrl = nextLink;
+      chapterIndex++;
+
+      // Delay before next chapter (anti-block)
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    await browser.close();
+
+    res.json({
+      message: 'Series download completed',
+      totalChapters: results.length,
+      results,
+    });
+  } catch (err) {
+    console.error('Series download error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ====== API: Extract Images ======
 app.post('/api/extract-images', async (req, res) => {
@@ -94,22 +207,19 @@ app.post('/api/extract-images', async (req, res) => {
 // ====== API: Download Images ======
 app.post('/api/download', async (req, res) => {
   try {
-    const { url, folder, selector } = req.body;
+    const { url, folder, startChapter = 1, seriesName = folder } = req.body;
+    let chapterIndex = parseInt(startChapter) || 1;
 
     if (!url || !folder) {
       return res.status(400).json({ error: 'URL and folder are required' });
     }
 
     // Sanitize folder name
-    const sanitizedFolder = folder.replace(/[<>:"/\\|?*]/g, '_');
-    const folderPath = path.join(downloadsDir, sanitizedFolder);
+    // Create chapter folder with format Chap_XXX
+    const chapterFolder = `${folder}/Chap_${String(chapterIndex).padStart(3, '0')}`;
+    let chapterResult;
 
-    // Create folder
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, { recursive: true });
-    }
-
-    // Extract images
+    // Extract images using helper function
     const browser = await chromium.launch();
     const page = await browser.newPage();
 
@@ -119,93 +229,20 @@ app.post('/api/download', async (req, res) => {
 
     await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
 
-    // Scroll to bottom
-    await page.evaluate(() => {
-      return new Promise((resolve) => {
-        let totalHeight = 0;
-        const distance = 100;
-        const timer = setInterval(() => {
-          const scrollHeight = document.documentElement.scrollHeight;
-          window.scrollBy(0, distance);
-          totalHeight += distance;
-          if (totalHeight >= scrollHeight - window.innerHeight) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, 100);
-      });
+    const result = await downloadImagesFromPage(page, {
+      url: url,
+      folder: chapterFolder,
+      seriesName,
+      chapter: chapterIndex,
     });
-
-    let images = [];
-
-    if (selector) {
-      images = await page.$$eval(selector, (elements) =>
-        elements
-          .map((el) => {
-            if (el.tagName === 'IMG') {
-              return el.src || el.getAttribute('data-src');
-            }
-            const img = el.querySelector('img');
-            return img ? img.src || img.getAttribute('data-src') : null;
-          })
-          .filter(Boolean)
-      );
-    } else {
-      images = await page.$$eval('img', (elements) =>
-        elements
-          .map((el) => el.src || el.getAttribute('data-src'))
-          .filter(Boolean)
-      );
-    }
 
     await browser.close();
 
-    // Filter images
-    const filteredImages = filterImages(images, url);
-
-    // Download images
-    const downloadedFiles = [];
-    for (let i = 0; i < filteredImages.length; i++) {
-      const imgUrl = filteredImages[i];
-      const filename = `${String(i + 1).padStart(3, '0')}.jpg`;
-      const filepath = path.join(folderPath, filename);
-
-      let downloaded = false;
-      let retries = 2;
-
-      while (retries >= 0 && !downloaded) {
-        try {
-          const response = await axios.get(imgUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-              Referer: url,
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-            timeout: 10000,
-          });
-
-          fs.writeFileSync(filepath, response.data);
-          downloadedFiles.push(filename);
-          downloaded = true;
-          console.log(`Downloaded: ${filename}`);
-        } catch (error) {
-          retries--;
-          if (retries < 0) {
-            console.log(`Failed to download: ${imgUrl}`);
-          }
-        }
-      }
-    }
-
-    // Generate index.html
-    generateIndexHtml(folderPath, downloadedFiles);
-
     res.json({
       message: 'Download completed',
-      folder: sanitizedFolder,
-      downloadedCount: downloadedFiles.length,
-      totalCount: filteredImages.length,
+      folder: chapterFolder,
+      downloadedCount: result.downloadedCount,
+      totalCount: result.totalCount,
     });
   } catch (error) {
     console.error('Download error:', error);
@@ -215,6 +252,163 @@ app.post('/api/download', async (req, res) => {
 
 // ====== Helper Functions ======
 
+// Download images from page and save them
+async function downloadImagesFromPage(page, options) {
+  const { url, folder, seriesName = '', chapter = 0 } = options;
+  const folderPath = path.join(downloadsDir, folder);
+
+  // Create folder if not exists
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+
+  // Scroll to bottom to trigger lazy loading
+  await page.evaluate(() => {
+    return new Promise((resolve) => {
+      let totalHeight = 0;
+      const distance = 100;
+      const timer = setInterval(() => {
+        const scrollHeight = document.documentElement.scrollHeight;
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+        if (totalHeight >= scrollHeight - window.innerHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 100);
+    });
+  });
+
+  await new Promise((r) => setTimeout(r, 1000));
+
+  // Extract images (no selector, get all images)
+  let images = [];
+  images = await page.$$eval('img', (elements) =>
+    elements
+      .map((el) => el.src || el.getAttribute('data-src'))
+      .filter(Boolean)
+  );
+
+  // Filter images
+  const filteredImages = filterImages(images, url);
+
+  // Download images
+  const downloadedFiles = [];
+  let consecutiveFailures = 0;
+  const maxConsecutiveFailures = 1;
+
+  for (let i = 0; i < filteredImages.length; i++) {
+    const imgUrl = filteredImages[i];
+    const filename = `${String(i + 1).padStart(3, '0')}.jpg`;
+    const filepath = path.join(folderPath, filename);
+
+    let downloaded = false;
+    let retries = 2;
+
+    while (retries >= 0 && !downloaded) {
+      try {
+        const response = await axios.get(imgUrl, {
+          responseType: 'arraybuffer',
+          headers: {
+            Referer: url,
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          timeout: 10000,
+        });
+
+        fs.writeFileSync(filepath, response.data);
+        downloadedFiles.push(filename);
+        downloaded = true;
+        consecutiveFailures = 0;
+        console.log(`[Downloaded] ${folder}: ${filename}`);
+      } catch (error) {
+        retries--;
+        if (retries < 0) {
+          console.log(`[Failed] ${imgUrl}`);
+          consecutiveFailures++;
+
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            console.log(
+              `[Stop] ${consecutiveFailures} consecutive failures detected. Moving to next chapter.`
+            );
+            i = filteredImages.length;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Generate index.html
+  generateIndexHtml(folderPath, downloadedFiles);
+
+  // Save to database
+  if (seriesName && chapter > 0) {
+    saveDownloadHistory(url, folder, seriesName, chapter);
+  }
+
+  return {
+    downloadedCount: downloadedFiles.length,
+    totalCount: filteredImages.length,
+    folder: folder,
+  };
+}
+
+// Save download history to database
+function saveDownloadHistory(url, folder, seriesName, chapter) {
+  const timestamp = new Date().toISOString();
+  const query = `
+    INSERT OR REPLACE INTO download_history (url, folder, series_name, chapter, timestamp)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  
+  db.run(query, [url, folder, seriesName, chapter, timestamp], (err) => {
+    if (err) {
+      console.error('Error saving history:', err.message);
+    } else {
+      console.log(`[History] Saved: ${folder} (Chapter ${chapter})`);
+    }
+  });
+}
+
+// Get next chapter link from page
+async function getNextChapterLink(page) {
+  try {
+    const nextLink = await page.evaluate(() => {
+      // Try common next button selectors
+      const selectors = [
+        'a[rel="next"]',
+        'a.next-chapter',
+        'a[aria-label*="Chap sau"]',
+        'a[href*="chap"]',
+      ];
+
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (el && el.href) return el.href;
+      }
+
+      // Fallback: find any link with "chap sau", "next" or "tiếp" in text
+      const links = Array.from(document.querySelectorAll('a'));
+      const nextBtn = links.find(
+        (a) =>
+          a.textContent.toLowerCase().includes('chap sau') ||
+          a.textContent.toLowerCase().includes('next') ||
+          a.textContent.toLowerCase().includes('tiếp')
+      );
+
+      return nextBtn?.href || null;
+    });
+
+    return nextLink;
+  } catch (error) {
+    console.log('Could not get next chapter link:', error.message);
+    return null;
+  }
+}
+
+// Filter & deduplicate images
 function filterImages(images, pageUrl) {
   // Remove duplicates
   const uniqueImages = [...new Set(images)];
@@ -277,144 +471,16 @@ function filterImages(images, pageUrl) {
 }
 
 function generateIndexHtml(folderPath, files) {
-  const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Viewer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            background: #1a1a1a;
-            color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding: 20px 0;
-            border-bottom: 1px solid #444;
-        }
-
-        .header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-
-        .header p {
-            color: #aaa;
-            font-size: 14px;
-        }
-
-        .gallery {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .image-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 200px;
-            background: #222;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .image-wrapper img {
-            max-width: 100%;
-            max-height: 90vh;
-            height: auto;
-            display: block;
-            loading: lazy;
-        }
-
-        .image-number {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #aaa;
-        }
-
-        .footer {
-            text-align: center;
-            margin-top: 40px;
-            padding: 20px 0;
-            border-top: 1px solid #444;
-            color: #aaa;
-            font-size: 12px;
-        }
-
-        @media (max-width: 768px) {
-            body {
-                padding: 10px;
-            }
-
-            .header h1 {
-                font-size: 20px;
-            }
-
-            .image-wrapper {
-                min-height: 150px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📖 Image Viewer</h1>
-            <p>Total images: ${files.length}</p>
-        </div>
-
-        <div class="gallery" id="gallery"></div>
-
-        <div class="footer">
-            <p>Offline Image Viewer • Created with ❤️</p>
-        </div>
-    </div>
-
-    <script>
-        const images = ${JSON.stringify(files)};
-
-        const gallery = document.getElementById('gallery');
-
-        images.forEach((filename, index) => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'image-wrapper';
-
-            const img = document.createElement('img');
-            img.src = filename;
-            img.alt = \`Image \${index + 1}\`;
-            img.loading = 'lazy';
-
-            wrapper.appendChild(img);
-            gallery.appendChild(wrapper);
-        });
-    </script>
-</body>
-</html>`;
-
-  fs.writeFileSync(path.join(folderPath, 'index.html'), htmlContent);
-  console.log('Generated index.html');
+  // Copy template file from TEMPLATE folder
+  const templatePath = path.join(__dirname, 'TEMPLATE', 'index.html');
+  const targetPath = path.join(folderPath, 'index.html');
+  
+  try {
+    fs.copyFileSync(templatePath, targetPath);
+    console.log('Copied index.html from template');
+  } catch (err) {
+    console.error('Error copying template file:', err.message);
+  }
 }
 
 // ====== Start Server ======
