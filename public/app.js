@@ -1,9 +1,10 @@
 // Dom Elements
 const urlInput = document.getElementById('url');
 const folderInput = document.getElementById('folder');
-const selectorInput = document.getElementById('selector');
+const startChapterInput = document.getElementById('startChapter');
 const testBtn = document.getElementById('testBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const downloadSeriesBtn = document.getElementById('downloadSeriesBtn');
 
 const previewSection = document.getElementById('previewSection');
 const imagePreviewContainer = document.getElementById('imagePreviewContainer');
@@ -21,19 +22,6 @@ const downloadPath = document.getElementById('downloadPath');
 
 let currentImages = [];
 let notificationPermissionRequested = false;
-
-// Load download history from localStorage
-function loadDownloadHistory() {
-    const history = localStorage.getItem('downloadHistory');
-    return history ? JSON.parse(history) : [];
-}
-
-// Save to localStorage
-function saveDownloadHistory(url, folder, selector) {
-    const history = loadDownloadHistory();
-    history.unshift({ url, folder, selector, timestamp: new Date().toISOString() });
-    localStorage.setItem('downloadHistory', JSON.stringify(history.slice(0, 20))); // Keep last 20
-}
 
 // Request Notification Permission
 async function requestNotificationPermission() {
@@ -56,12 +44,12 @@ async function requestNotificationPermission() {
 }
 
 // Show Notification
-function showNotification() {
+function showNotification(title = 'Download complete', body = 'Your images have been downloaded successfully') {
     if (!('Notification' in window)) return;
 
     if (Notification.permission === 'granted' && document.hidden) {
-        const notification = new Notification('Download complete', {
-            body: 'Your images have been downloaded successfully',
+        const notification = new Notification(title, {
+            body: body,
             icon: '📖',
         });
 
@@ -77,15 +65,19 @@ testBtn.addEventListener('click', testImages);
 
 // Download Button
 downloadBtn.addEventListener('click', async (e) => {
-    // Request notification permission before download
     await requestNotificationPermission();
     downloadImages();
+});
+
+// Download Series Button
+downloadSeriesBtn.addEventListener('click', async (e) => {
+    await requestNotificationPermission();
+    downloadSeries();
 });
 
 // Test Images Function
 async function testImages() {
     const url = urlInput.value.trim();
-    const selector = selectorInput.value.trim();
 
     if (!url) {
         showError('Please enter a URL');
@@ -103,7 +95,6 @@ async function testImages() {
             },
             body: JSON.stringify({
                 url: url,
-                selector: selector || undefined,
             }),
         });
 
@@ -136,11 +127,11 @@ async function testImages() {
     }
 }
 
-// Download Images Function
+// Download Single Chapter
 async function downloadImages() {
     const url = urlInput.value.trim();
     const folder = folderInput.value.trim();
-    const selector = selectorInput.value.trim();
+    const startChapter = parseInt(startChapterInput.value) || 1;
 
     if (!url) {
         showError('Please enter a URL');
@@ -154,6 +145,7 @@ async function downloadImages() {
 
     downloadBtn.disabled = true;
     downloadBtn.textContent = '⏳ Downloading...';
+    downloadSeriesBtn.disabled = true;
 
     previewSection.style.display = 'none';
     statusSection.style.display = 'block';
@@ -171,7 +163,8 @@ async function downloadImages() {
             body: JSON.stringify({
                 url: url,
                 folder: folder,
-                selector: selector || undefined,
+                startChapter: startChapter,
+                seriesName: folder,
             }),
         });
 
@@ -194,17 +187,92 @@ async function downloadImages() {
         downloadedFolder.textContent = data.folder;
         downloadPath.textContent = `downloads/${data.folder}`;
 
-        // Save to localStorage
-        saveDownloadHistory(url, folder, selector);
-
         // Show notification if tab is not focused
-        showNotification();
+        showNotification('Download complete', `Downloaded ${data.downloadedCount} images`);
     } catch (error) {
         console.error('Download error:', error);
         showError(`Error: ${error.message}`);
     } finally {
         downloadBtn.disabled = false;
         downloadBtn.textContent = '⬇️ Download';
+        downloadSeriesBtn.disabled = false;
+    }
+}
+
+// Download Series
+async function downloadSeries() {
+    const url = urlInput.value.trim();
+    const folder = folderInput.value.trim();
+    const startChapter = parseInt(startChapterInput.value) || 1;
+
+    if (!url) {
+        showError('Please enter a URL');
+        return;
+    }
+
+    if (!folder) {
+        showError('Please enter a folder name (series name)');
+        return;
+    }
+
+    downloadBtn.disabled = true;
+    downloadSeriesBtn.disabled = true;
+    downloadSeriesBtn.textContent = '⏳ Downloading Series...';
+
+    previewSection.style.display = 'none';
+    statusSection.style.display = 'block';
+    completeSection.style.display = 'none';
+
+    statusMessage.innerHTML =
+        '📚 Starting series download... This may take a very long time.';
+
+    try {
+        const response = await fetch('/api/download-series', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: url,
+                folder: folder,
+                startChapter: startChapter,
+                seriesName: folder,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+            showError(`Error: ${data.error}`);
+            return;
+        }
+
+        // Show success
+        statusSection.style.display = 'none';
+        completeSection.style.display = 'block';
+
+        let resultsSummary = `Successfully processed ${data.totalChapters} chapters:\n`;
+        data.results.forEach((r) => {
+            resultsSummary += `\n✓ Chapter ${r.chapter}: ${r.downloadedCount}/${r.totalCount} images`;
+        });
+
+        completionMessage.innerHTML = resultsSummary.replace(/\n/g, '<br>');
+        downloadedFolder.textContent = folder;
+        downloadPath.textContent = `downloads/${folder}`;
+
+        // Show notification if tab is not focused
+        showNotification('Series download complete', `Processed ${data.totalChapters} chapters`);
+    } catch (error) {
+        console.error('Series download error:', error);
+        showError(`Error: ${error.message}`);
+    } finally {
+        downloadBtn.disabled = false;
+        downloadSeriesBtn.disabled = false;
+        downloadSeriesBtn.textContent = '📚 Download Series';
     }
 }
 

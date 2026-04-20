@@ -29,24 +29,26 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="folder">Folder Name *</label>
+                    <label for="folder">Folder Name / Series Name *</label>
                     <input
                         type="text"
                         id="folder"
-                        placeholder="my-chapter-01"
+                        placeholder="my-series-name"
                         required
                     />
-                    <small>Name for the downloaded folder</small>
+                    <small>Name for the series folder</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="selector">CSS Selector (Optional)</label>
+                    <label for="startChapter">Start Chapter Number (Series Only)</label>
                     <input
-                        type="text"
-                        id="selector"
-                        placeholder="img.chapter-image, div.manga-page img"
+                        type="number"
+                        id="startChapter"
+                        placeholder="1"
+                        min="1"
+                        value="1"
                     />
-                    <small>Leave empty to get all images. Use CSS selector like: img.chapter-image</small>
+                    <small>Chapter number to start from (for Download Series)</small>
                 </div>
 
                 <div class="button-group">
@@ -55,6 +57,9 @@
                     </button>
                     <button id="downloadBtn" class="btn btn-primary">
                         ⬇️ Download
+                    </button>
+                    <button id="downloadSeriesBtn" class="btn btn-primary">
+                        📚 Download Series
                     </button>
                 </div>
             </section>
@@ -98,6 +103,6 @@
         </footer>
     </div>
 
-    <script src="script.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
