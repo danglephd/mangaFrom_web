@@ -5,6 +5,7 @@ const startChapterInput = document.getElementById('startChapter');
 const testBtn = document.getElementById('testBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadSeriesBtn = document.getElementById('downloadSeriesBtn');
+const downloadSeries2Btn = document.getElementById('downloadSeries2Btn');
 
 const previewSection = document.getElementById('previewSection');
 const imagePreviewContainer = document.getElementById('imagePreviewContainer');
@@ -22,6 +23,8 @@ const downloadPath = document.getElementById('downloadPath');
 
 let currentImages = [];
 let notificationPermissionRequested = false;
+let isDownloadingChapter2 = false;
+let userStoppedDownload = false;
 
 // Request Notification Permission
 async function requestNotificationPermission() {
@@ -73,6 +76,19 @@ downloadBtn.addEventListener('click', async (e) => {
 downloadSeriesBtn.addEventListener('click', async (e) => {
     await requestNotificationPermission();
     downloadSeries();
+});
+
+// Download Series 2 Button
+downloadSeries2Btn.addEventListener('click', async (e) => {
+    if (isDownloadingChapter2) {
+        // User clicked Stop button while downloading
+        userStoppedDownload = true;
+        downloadSeries2Btn.disabled = true;
+        downloadSeries2Btn.textContent = '📚 Download Series 2';
+    } else {
+        await requestNotificationPermission();
+        downloadSeries2();
+    }
 });
 
 // Test Images Function
@@ -273,6 +289,118 @@ async function downloadSeries() {
         downloadBtn.disabled = false;
         downloadSeriesBtn.disabled = false;
         downloadSeriesBtn.textContent = '📚 Download Series';
+    }
+}
+
+// Download Series 2 (Single Chapter with Auto-Update)
+async function downloadSeries2() {
+    const url = urlInput.value.trim();
+    const folder = folderInput.value.trim();
+    const startChapter = parseInt(startChapterInput.value) || 1;
+
+    if (!url) {
+        showError('Please enter a URL');
+        return;
+    }
+
+    if (!folder) {
+        showError('Please enter a folder name (series name)');
+        return;
+    }
+
+    // Set download in progress and update button immediately
+    isDownloadingChapter2 = true;
+    userStoppedDownload = false;
+    downloadBtn.disabled = true;
+    testBtn.disabled = true;
+    downloadSeriesBtn.disabled = true;
+    downloadSeries2Btn.textContent = '⏸️ Dừng';
+    downloadSeries2Btn.disabled = false;
+
+    previewSection.style.display = 'none';
+    statusSection.style.display = 'block';
+    completeSection.style.display = 'none';
+
+    statusMessage.innerHTML =
+        `📦 Downloading chapter ${startChapter}... Please wait.`;
+
+    try {
+        const response = await fetch('/api/download-series-2', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: url,
+                folder: folder,
+                startChapter: startChapter,
+                seriesName: folder,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+            showError(`Error: ${data.error}`);
+            return;
+        }
+
+        // Show success
+        if (!userStoppedDownload) {
+            statusSection.style.display = 'none';
+            completeSection.style.display = 'block';
+        }
+
+        completionMessage.innerHTML = `✓ Chapter ${data.chapter}: ${data.downloadedCount}/${data.totalCount} images`;
+        downloadedFolder.textContent = data.folder;
+        downloadPath.textContent = `downloads/${data.folder}`;
+
+        // Update URL and Chapter Number for next download
+        if (data.nextLink) {
+            urlInput.value = data.nextLink;
+            startChapterInput.value = startChapter + 1;
+            
+            // Show notification if tab is not focused
+            showNotification('Chapter downloaded', `Chapter ${data.chapter} completed. Ready for next chapter.`);
+            
+            // Auto-continue to next chapter after 2 seconds (only if user didn't stop)
+            if (!userStoppedDownload) {
+                setTimeout(() => {
+                    if (!userStoppedDownload) {
+                        downloadSeries2();
+                    }
+                }, 2000);
+            }
+        } else {
+            // No next link - series completed
+            showNotification('Series completed', `Chapter ${data.chapter} is the last chapter.`);
+        }
+    } catch (error) {
+        console.error('Series 2 download error:', error);
+        showError(`Error: ${error.message}`);
+    } finally {
+        isDownloadingChapter2 = false;
+        downloadBtn.disabled = false;
+        testBtn.disabled = false;
+        downloadSeriesBtn.disabled = false;
+        
+        // Update button state only if user stopped or no next chapter
+        if (userStoppedDownload) {
+            downloadSeries2Btn.textContent = '📚 Download Series 2';
+            downloadSeries2Btn.disabled = false;
+        } else {
+            // If auto-continuing, keep the button as is
+            // Otherwise reset to normal state
+            const hasNextChapter = completeSection.style.display !== 'none';
+            if (!hasNextChapter) {
+                downloadSeries2Btn.textContent = '📚 Download Series 2';
+                downloadSeries2Btn.disabled = false;
+            }
+        }
     }
 }
 

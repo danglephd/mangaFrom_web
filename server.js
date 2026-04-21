@@ -250,6 +250,52 @@ app.post('/api/download', async (req, res) => {
   }
 });
 
+// ====== API: Download Series 2 (Single Chapter with Next Link) ======
+app.post('/api/download-series-2', async (req, res) => {
+  try {
+    const { url, folder, startChapter = 1, seriesName = folder } = req.body;
+    let chapterIndex = parseInt(startChapter) || 1;
+
+    if (!url || !folder) {
+      return res.status(400).json({ error: 'URL and folder are required' });
+    }
+
+    // Create chapter folder with format Chap_XXX
+    const chapterFolder = `${folder}/Chap_${String(chapterIndex).padStart(3, '0')}`;
+
+    // Extract images using helper function
+    const browser = await chromium.launch();
+    const page = await browser.newPage();
+
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+
+    // Download images for this chapter
+    const result = await downloadImagesFromPage(page, {
+      url: url,
+      folder: chapterFolder,
+      seriesName,
+      chapter: chapterIndex,
+    });
+
+    // Get next chapter link
+    const nextLink = await getNextChapterLink(page);
+
+    await browser.close();
+
+    res.json({
+      message: 'Chapter download completed',
+      chapter: chapterIndex,
+      folder: chapterFolder,
+      downloadedCount: result.downloadedCount,
+      totalCount: result.totalCount,
+      nextLink: nextLink,
+    });
+  } catch (error) {
+    console.error('Series 2 download error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ====== Helper Functions ======
 
 // Download images from page and save them
