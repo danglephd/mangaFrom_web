@@ -340,8 +340,8 @@ async function downloadImagesFromPage(page, options) {
     }
   }
 
-  // Generate index.html
-  generateIndexHtml(folderPath, downloadedFiles);
+  // // Generate index.html
+  // generateIndexHtml(folderPath, downloadedFiles);
 
   // Save to database
   if (seriesName && chapter > 0) {
