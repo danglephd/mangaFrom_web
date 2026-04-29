@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comic Viewer</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #0f0f0f;
+            font-family: Arial, sans-serif;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+            padding: 10px;
+        }
+
+        .chapter-nav {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            max-width: 100%;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            font-size: 14px;
+            display: inline-block;
+            cursor: pointer;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background: rgba(255, 107, 107, 0.3);
+            border-color: #ff6b6b;
+        }
+
+        .nav-btn:disabled {
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .nav-container {
+                gap: 10px;
+            }
+
+            .nav-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        }
+
+        .chapter-title {
+            text-align: center;
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #ccc;
+        }
+
+        .image-wrapper {
+            margin-bottom: 10px;
+        }
+
+        .image-wrapper img {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: 6px;
+            background: #222;
+        }
+
+        /* Mobile tối ưu */
+        @media (max-width: 768px) {
+            .container {
+                padding: 5px;
+            }
+
+            .chapter-title {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="chapter-nav">
+        <div class="nav-container">
+            <button id="prevBtn" class="nav-btn">← Previous</button>
+            <select id="chapterSelect"></select>
+            <button id="nextBtn" class="nav-btn">Next →</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="chapter-title" id="chapterTitle">Chapter Viewer</div>
+        <div id="images"></div>
+    </div>
+
+    <script>
+        // Danh sách chapters (cố định)
+        const chapters = [
+            "Chap_001", "Chap_002", "Chap_003", "Chap_004", "Chap_005",
+            "Chap_006", "Chap_007", "Chap_008", "Chap_009", "Chap_010",
+            "Chap_011", "Chap_012", "Chap_013", "Chap_014", "Chap_015",
+            "Chap_016", "Chap_017", "Chap_018", "Chap_019", "Chap_020",
+        ];
+
+        // Danh sách images (cố định - 50 ảnh)
+        const images = [
+            "001.jpg", "002.jpg", "003.jpg", "004.jpg", "005.jpg",
+            "006.jpg", "007.jpg", "008.jpg", "009.jpg", "010.jpg",
+            "011.jpg", "012.jpg", "013.jpg", "014.jpg", "015.jpg",
+            "016.jpg", "017.jpg", "018.jpg", "019.jpg", "020.jpg",
+            "021.jpg", "022.jpg", "023.jpg", "024.jpg", "025.jpg",
+            "026.jpg", "027.jpg", "028.jpg", "029.jpg", "030.jpg",
+            "031.jpg", "032.jpg", "033.jpg", "034.jpg", "035.jpg",
+            "036.jpg", "037.jpg", "038.jpg", "039.jpg", "040.jpg",
+            "041.jpg", "042.jpg", "043.jpg", "044.jpg", "045.jpg",
+            "046.jpg", "047.jpg", "048.jpg", "049.jpg", "050.jpg",
+        ];
+
+        let currentChapterIndex = 0;
+        const select = document.getElementById("chapterSelect");
+        const options = chapters.map((chapter, index) => {
+            const selected = index === currentChapterIndex ? "selected" : "";
+            return `<option value="${index}" ${selected}>${chapter}</option>`;
+        }).join("");
+        select.innerHTML = options;
+
+        // Get current chapter from URL path
+        function getCurrentChapterIndex() {
+            const url = window.location.pathname;
+            const match = url.match(/Chap_(\d+)/);
+            if (match) {
+                const chapterNum = parseInt(match[1]);
+                const chapterName = `Chap_${String(chapterNum).padStart(3, '0')}`;
+                const index = chapters.indexOf(chapterName);
+                return index >= 0 ? index : 0;
+            }
+            return 0;
+        }
+
+        // Get series path from URL
+        function getSeriesPath() {
+            const url = window.location.pathname;
+            const parts = url.split('/');
+            // Find the part before Chap_XXX
+            for (let i = parts.length - 1; i >= 0; i--) {
+                if (parts[i].startsWith('Chap_')) {
+                    return parts.slice(0, i).join('/') + '/';
+                }
+            }
+            return '';
+        }
+
+        // Load images for current chapter
+        function loadImages() {
+            const container = document.getElementById("images");
+            container.innerHTML = '';
+
+            const seriesPath = getSeriesPath();
+            const currentChapter = chapters[currentChapterIndex];
+            const chapterPath = `${seriesPath}${currentChapter}/`;
+
+            // Update title
+            document.getElementById("chapterTitle").textContent = currentChapter;
+
+            // Load images
+            images.forEach(filename => {
+                const div = document.createElement("div");
+                div.className = "image-wrapper";
+
+                const img = document.createElement("img");
+                img.src = chapterPath + filename;
+                img.loading = "lazy";
+                img.alt = filename;
+
+                div.appendChild(img);
+                container.appendChild(div);
+            });
+        }
+
+        // Update navigation buttons
+        function updateNavigation() {
+            const prevBtn = document.getElementById("prevBtn");
+            const nextBtn = document.getElementById("nextBtn");
+
+            prevBtn.disabled = currentChapterIndex === 0;
+            nextBtn.disabled = currentChapterIndex === chapters.length - 1;
+
+            if (currentChapterIndex > 0) {
+                prevBtn.textContent = `← ${chapters[currentChapterIndex - 1]}`;
+            } else {
+                prevBtn.textContent = "← Previous";
+            }
+
+            if (currentChapterIndex < chapters.length - 1) {
+                nextBtn.textContent = `${chapters[currentChapterIndex + 1]} →`;
+            } else {
+                nextBtn.textContent = "Next →";
+            }
+        }
+
+        // Initialize
+        currentChapterIndex = getCurrentChapterIndex();
+        loadImages();
+        updateNavigation();
+
+        // Event listeners
+        document.getElementById("prevBtn").addEventListener("click", () => {
+            if (currentChapterIndex > 0) {
+                currentChapterIndex--;
+                loadImages();
+                updateNavigation();
+                window.scrollTo(0, 0);
+            }
+        });
+
+        document.getElementById("nextBtn").addEventListener("click", () => {
+            if (currentChapterIndex < chapters.length - 1) {
+                currentChapterIndex++;
+                loadImages();
+                updateNavigation();
+                window.scrollTo(0, 0);
+            }
+        });
+
+        select.addEventListener("change", () => {
+            currentChapterIndex = Number(select.value);
+            loadImages();
+            updateNavigation();
+            window.scrollTo(0, 0);
+        });
+    </script>
+
+</body>
+
+</html>

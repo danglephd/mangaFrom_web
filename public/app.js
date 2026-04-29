@@ -2,29 +2,57 @@
 const urlInput = document.getElementById('url');
 const folderInput = document.getElementById('folder');
 const startChapterInput = document.getElementById('startChapter');
-const testBtn = document.getElementById('testBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadSeriesBtn = document.getElementById('downloadSeriesBtn');
 const downloadSeries2Btn = document.getElementById('downloadSeries2Btn');
 
-const previewSection = document.getElementById('previewSection');
-const imagePreviewContainer = document.getElementById('imagePreviewContainer');
-const previewCount = document.getElementById('previewCount');
+const historyContainer = document.getElementById('historyContainer');
+const copyHistoryBtn = document.getElementById('copyHistoryBtn');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
-const statusSection = document.getElementById('statusSection');
-const statusMessage = document.getElementById('statusMessage');
-const progressFill = document.getElementById('progressFill');
-const progressText = document.getElementById('progressText');
-
-const completeSection = document.getElementById('completeSection');
-const completionMessage = document.getElementById('completionMessage');
-const downloadedFolder = document.getElementById('downloadedFolder');
-const downloadPath = document.getElementById('downloadPath');
-
-let currentImages = [];
 let notificationPermissionRequested = false;
 let isDownloadingChapter2 = false;
 let userStoppedDownload = false;
+
+// Add Log Function
+function addLog(message, type = "info") {
+    const entry = document.createElement('div');
+    entry.className = `history-log-entry ${type}`;
+    
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+    
+    entry.textContent = `[${timeStr}] ${message}`;
+    
+    // Prepend to container (newest first)
+    historyContainer.insertBefore(entry, historyContainer.firstChild);
+}
+
+// Copy History to Clipboard
+copyHistoryBtn.addEventListener('click', () => {
+    const allLogs = Array.from(historyContainer.querySelectorAll('.history-log-entry'))
+        .reverse()
+        .map(entry => entry.textContent)
+        .join('\n');
+    
+    if (!allLogs) {
+        showError('No logs to copy');
+        return;
+    }
+    
+    navigator.clipboard.writeText(allLogs).then(() => {
+        addLog('Logs copied to clipboard', 'success');
+    }).catch(err => {
+        addLog('Failed to copy logs', 'error');
+        console.error('Clipboard error:', err);
+    });
+});
+
+// Clear History
+clearHistoryBtn.addEventListener('click', () => {
+    historyContainer.innerHTML = '';
+    addLog('History cleared', 'info');
+});
 
 // Request Notification Permission
 async function requestNotificationPermission() {
@@ -63,9 +91,6 @@ function showNotification(title = 'Download complete', body = 'Your images have 
     }
 }
 
-// Test Images Button
-testBtn.addEventListener('click', testImages);
-
 // Download Button
 downloadBtn.addEventListener('click', async (e) => {
     await requestNotificationPermission();
@@ -91,58 +116,6 @@ downloadSeries2Btn.addEventListener('click', async (e) => {
     }
 });
 
-// Test Images Function
-async function testImages() {
-    const url = urlInput.value.trim();
-
-    if (!url) {
-        showError('Please enter a URL');
-        return;
-    }
-
-    testBtn.disabled = true;
-    testBtn.textContent = '🔄 Testing...';
-
-    try {
-        const response = await fetch('/api/extract-images', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                url: url,
-            }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.error) {
-            showError(`Error: ${data.error}`);
-            return;
-        }
-
-        currentImages = data.images;
-
-        // Display preview
-        displayPreview(currentImages);
-        previewSection.style.display = 'block';
-        statusSection.style.display = 'none';
-        completeSection.style.display = 'none';
-
-        previewCount.textContent = `Found ${currentImages.length} images`;
-    } catch (error) {
-        console.error('Test error:', error);
-        showError(`Error: ${error.message}`);
-    } finally {
-        testBtn.disabled = false;
-        testBtn.textContent = '🔍 Test Images';
-    }
-}
-
 // Download Single Chapter
 async function downloadImages() {
     const url = urlInput.value.trim();
@@ -163,12 +136,7 @@ async function downloadImages() {
     downloadBtn.textContent = '⏳ Downloading...';
     downloadSeriesBtn.disabled = true;
 
-    previewSection.style.display = 'none';
-    statusSection.style.display = 'block';
-    completeSection.style.display = 'none';
-
-    statusMessage.innerHTML =
-        '📦 Processing your request... This may take a while.';
+    addLog(`Starting download from: ${url}`, 'info');
 
     try {
         const response = await fetch('/api/download', {
@@ -191,22 +159,19 @@ async function downloadImages() {
         const data = await response.json();
 
         if (data.error) {
+            addLog(`ERROR: ${data.error}`, 'error');
             showError(`Error: ${data.error}`);
             return;
         }
 
         // Show success
-        statusSection.style.display = 'none';
-        completeSection.style.display = 'block';
-
-        completionMessage.textContent = `Successfully downloaded ${data.downloadedCount} out of ${data.totalCount} images`;
-        downloadedFolder.textContent = data.folder;
-        downloadPath.textContent = `downloads/${data.folder}`;
+        addLog(`SUCCESS: Downloaded ${data.downloadedCount} out of ${data.totalCount} images`, 'success');
 
         // Show notification if tab is not focused
         showNotification('Download complete', `Downloaded ${data.downloadedCount} images`);
     } catch (error) {
         console.error('Download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
         showError(`Error: ${error.message}`);
     } finally {
         downloadBtn.disabled = false;
@@ -235,12 +200,7 @@ async function downloadSeries() {
     downloadSeriesBtn.disabled = true;
     downloadSeriesBtn.textContent = '⏳ Downloading Series...';
 
-    previewSection.style.display = 'none';
-    statusSection.style.display = 'block';
-    completeSection.style.display = 'none';
-
-    statusMessage.innerHTML =
-        '📚 Starting series download... This may take a very long time.';
+    addLog(`Starting download from: ${url}`, 'info');
 
     try {
         const response = await fetch('/api/download-series', {
@@ -263,27 +223,23 @@ async function downloadSeries() {
         const data = await response.json();
 
         if (data.error) {
+            addLog(`ERROR: ${data.error}`, 'error');
             showError(`Error: ${data.error}`);
             return;
         }
 
         // Show success
-        statusSection.style.display = 'none';
-        completeSection.style.display = 'block';
-
-        let resultsSummary = `Successfully processed ${data.totalChapters} chapters:\n`;
+        let downloadedTotal = 0;
         data.results.forEach((r) => {
-            resultsSummary += `\n✓ Chapter ${r.chapter}: ${r.downloadedCount}/${r.totalCount} images`;
+            downloadedTotal += r.downloadedCount;
         });
-
-        completionMessage.innerHTML = resultsSummary.replace(/\n/g, '<br>');
-        downloadedFolder.textContent = folder;
-        downloadPath.textContent = `downloads/${folder}`;
+        addLog(`SUCCESS: Downloaded ${downloadedTotal} images from ${data.totalChapters} chapters`, 'success');
 
         // Show notification if tab is not focused
         showNotification('Series download complete', `Processed ${data.totalChapters} chapters`);
     } catch (error) {
         console.error('Series download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
         showError(`Error: ${error.message}`);
     } finally {
         downloadBtn.disabled = false;
@@ -312,17 +268,11 @@ async function downloadSeries2() {
     isDownloadingChapter2 = true;
     userStoppedDownload = false;
     downloadBtn.disabled = true;
-    testBtn.disabled = true;
     downloadSeriesBtn.disabled = true;
     downloadSeries2Btn.textContent = '⏸️ Dừng';
     downloadSeries2Btn.disabled = false;
 
-    previewSection.style.display = 'none';
-    statusSection.style.display = 'block';
-    completeSection.style.display = 'none';
-
-    statusMessage.innerHTML =
-        `📦 Downloading chapter ${startChapter}... Please wait.`;
+    addLog(`Starting download from: ${url}`, 'info');
 
     try {
         const response = await fetch('/api/download-series-2', {
@@ -345,19 +295,13 @@ async function downloadSeries2() {
         const data = await response.json();
 
         if (data.error) {
+            addLog(`ERROR: ${data.error}`, 'error');
             showError(`Error: ${data.error}`);
             return;
         }
 
         // Show success
-        if (!userStoppedDownload) {
-            statusSection.style.display = 'none';
-            completeSection.style.display = 'block';
-        }
-
-        completionMessage.innerHTML = `✓ Chapter ${data.chapter}: ${data.downloadedCount}/${data.totalCount} images`;
-        downloadedFolder.textContent = data.folder;
-        downloadPath.textContent = `downloads/${data.folder}`;
+        addLog(`SUCCESS: Downloaded ${data.downloadedCount} images`, 'success');
 
         // Update URL and Chapter Number for next download
         if (data.nextLink) {
@@ -381,11 +325,11 @@ async function downloadSeries2() {
         }
     } catch (error) {
         console.error('Series 2 download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
         showError(`Error: ${error.message}`);
     } finally {
         isDownloadingChapter2 = false;
         downloadBtn.disabled = false;
-        testBtn.disabled = false;
         downloadSeriesBtn.disabled = false;
         
         // Update button state only if user stopped or no next chapter
@@ -404,42 +348,6 @@ async function downloadSeries2() {
     }
 }
 
-// Display Preview Images
-function displayPreview(images) {
-    imagePreviewContainer.innerHTML = '';
-
-    images.slice(0, 50).forEach((imgUrl, index) => {
-        const img = document.createElement('img');
-        img.src = imgUrl;
-        img.alt = `Preview ${index + 1}`;
-        img.className = 'preview-image';
-        img.onerror = () => {
-            img.style.background = '#333';
-            img.title = 'Failed to load image preview';
-        };
-
-        img.addEventListener('click', () => {
-            openImageInNewTab(imgUrl);
-        });
-
-        imagePreviewContainer.appendChild(img);
-    });
-
-    if (images.length > 50) {
-        const moreText = document.createElement('div');
-        moreText.style.padding = '20px';
-        moreText.style.textAlign = 'center';
-        moreText.style.color = '#aaa';
-        moreText.textContent = `... and ${images.length - 50} more`;
-        imagePreviewContainer.appendChild(moreText);
-    }
-}
-
-// Open Image in New Tab
-function openImageInNewTab(url) {
-    window.open(url, '_blank');
-}
-
 // Show Error Message
 function showError(message) {
     const errorDiv = document.createElement('div');
@@ -455,20 +363,3 @@ function showError(message) {
 
     console.error(message);
 }
-
-// Update Progress (optional, for real-time updates if needed)
-function updateProgress(current, total) {
-    const percentage = (current / total) * 100;
-    progressFill.style.width = `${percentage}%`;
-    progressText.textContent = `${current}/${total}`;
-}
-
-// Keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-    // Ctrl+Enter or Cmd+Enter to test
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        if (document.activeElement === urlInput) {
-            testImages();
-        }
-    }
-});
