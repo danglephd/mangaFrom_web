@@ -2,9 +2,11 @@
 const urlInput = document.getElementById('url');
 const folderInput = document.getElementById('folder');
 const startChapterInput = document.getElementById('startChapter');
+const downloadedSeriesCombo = document.getElementById('downloadedSeriesCombo');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadSeriesBtn = document.getElementById('downloadSeriesBtn');
 const downloadSeries2Btn = document.getElementById('downloadSeries2Btn');
+const downloadNovelBtn = document.getElementById('downloadNovelBtn');
 
 const historyContainer = document.getElementById('historyContainer');
 const copyHistoryBtn = document.getElementById('copyHistoryBtn');
@@ -12,21 +14,68 @@ const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
 let notificationPermissionRequested = false;
 let isDownloadingChapter2 = false;
+let isDownloadingNovel = false;
 let userStoppedDownload = false;
+let downloadedSeriesData = [];
 
 // Add Log Function
 function addLog(message, type = "info") {
     const entry = document.createElement('div');
     entry.className = `history-log-entry ${type}`;
-    
+
     const now = new Date();
     const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
-    
+
     entry.textContent = `[${timeStr}] ${message}`;
-    
+
     // Prepend to container (newest first)
     historyContainer.insertBefore(entry, historyContainer.firstChild);
 }
+
+// Load Downloaded Series Data
+async function loadDownloadedSeries() {
+    try {
+        const response = await fetch('/api/get-downloaded-series');
+        if (!response.ok) throw new Error('Failed to load downloaded series');
+
+        const result = await response.json();
+        downloadedSeriesData = result.data || [];
+        populateDownloadedSeriesCombo();
+    } catch (error) {
+        console.error('Error loading downloaded series:', error);
+    }
+}
+
+// Populate Combobox
+function populateDownloadedSeriesCombo() {
+    // Clear existing options (keep the placeholder)
+    const options = downloadedSeriesCombo.querySelectorAll('option');
+    options.forEach((option, index) => {
+        if (index > 0) option.remove();
+    });
+
+    // Add new options
+    downloadedSeriesData.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = JSON.stringify(item);
+        option.textContent = `${item.series_name}/Chapter ${item.chapter}`;
+        downloadedSeriesCombo.appendChild(option);
+    });
+}
+
+// Handle Combobox Selection
+downloadedSeriesCombo.addEventListener('change', (e) => {
+    if (!e.target.value) return;
+
+    try {
+        const selectedData = JSON.parse(e.target.value);
+        urlInput.value = selectedData.url;
+        folderInput.value = selectedData.series_name;
+        startChapterInput.value = selectedData.chapter;
+    } catch (error) {
+        console.error('Error parsing selected data:', error);
+    }
+});
 
 // Copy History to Clipboard
 copyHistoryBtn.addEventListener('click', () => {
@@ -34,12 +83,12 @@ copyHistoryBtn.addEventListener('click', () => {
         .reverse()
         .map(entry => entry.textContent)
         .join('\n');
-    
+
     if (!allLogs) {
         showError('No logs to copy');
         return;
     }
-    
+
     navigator.clipboard.writeText(allLogs).then(() => {
         addLog('Logs copied to clipboard', 'success');
     }).catch(err => {
@@ -116,6 +165,19 @@ downloadSeries2Btn.addEventListener('click', async (e) => {
     }
 });
 
+// Download Novel Button
+downloadNovelBtn.addEventListener('click', async (e) => {
+    if (isDownloadingNovel) {
+        // User clicked Stop button while downloading
+        userStoppedDownload = true;
+        downloadNovelBtn.disabled = true;
+        downloadNovelBtn.textContent = '📖 Download Novel';
+    } else {
+        await requestNotificationPermission();
+        downloadNovel();
+    }
+});
+
 // Download Single Chapter
 async function downloadImages() {
     const url = urlInput.value.trim();
@@ -169,6 +231,9 @@ async function downloadImages() {
 
         // Show notification if tab is not focused
         showNotification('Download complete', `Downloaded ${data.downloadedCount} images`);
+
+        // Refresh downloaded series combobox
+        await loadDownloadedSeries();
     } catch (error) {
         console.error('Download error:', error);
         addLog(`ERROR: ${error.message}`, 'error');
@@ -237,6 +302,9 @@ async function downloadSeries() {
 
         // Show notification if tab is not focused
         showNotification('Series download complete', `Processed ${data.totalChapters} chapters`);
+
+        // Refresh downloaded series combobox
+        await loadDownloadedSeries();
     } catch (error) {
         console.error('Series download error:', error);
         addLog(`ERROR: ${error.message}`, 'error');
@@ -254,28 +322,117 @@ async function downloadSeries2() {
     const folder = folderInput.value.trim();
     const startChapter = parseInt(startChapterInput.value) || 1;
 
+    // Validation
+    if (!url || !folder) {
+        showError('Vui lòng nhập URL và tên folder');
+        return;
+    }
+
+    // Cập nhật UI
+    isDownloadingChapter2 = true;
+    userStoppedDownload = false;
+    updateButtonStates(true);
+
+    addLog(`Starting download from: ${url}`, 'info');
+
+    try {
+        const response = await fetch('/api/download-series-2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, folder, startChapter, seriesName: folder }),
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            throw new Error('Invalid server response');
+        }
+
+        if (data.error) throw new Error(data.error);
+
+        addLog(`SUCCESS: Downloaded ${data.downloadedCount} images`, 'success');
+
+        // Refresh downloaded series combobox
+        await loadDownloadedSeries();
+
+        if (data.nextLink && !userStoppedDownload) {
+            urlInput.value = data.nextLink;
+            startChapterInput.value = startChapter + 1;
+            showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
+
+            // Chỉ schedule nếu user chưa stop
+            setTimeout(() => {
+                if (!userStoppedDownload && isDownloadingChapter2) {
+                    downloadSeries2();
+                }
+            }, 2000);
+        } else {
+            isDownloadingChapter2 = false;
+            showNotification('Series completed', `Chapter ${data.chapter} finished`);
+        }
+    } catch (error) {
+        console.error('Download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
+        showError(error.message);
+        isDownloadingChapter2 = false;
+        userStoppedDownload = true;
+    } finally {
+        // Luôn reset state nếu không auto-continue
+        if (userStoppedDownload || !isDownloadingChapter2) {
+            updateButtonStates(false);
+        }
+    }
+}
+
+// Helper function
+function updateButtonStates(isDownloading) {
+    const disabled = isDownloading;
+    downloadBtn.disabled = disabled;
+    downloadSeriesBtn.disabled = disabled;
+    downloadNovelBtn.disabled = disabled;
+    if (userStoppedDownload) {
+        downloadSeries2Btn.disabled = false;
+        downloadSeries2Btn.textContent = '📚 Download Series 2';
+    } else {
+        downloadSeries2Btn.disabled = !disabled;
+        downloadSeries2Btn.textContent = disabled ? '⏸️ Dừng' : '📚 Download Series 2';
+    }
+}
+
+// Download Novel (scrape and save to database)
+async function downloadNovel() {
+    const url = urlInput.value.trim();
+    const folder = folderInput.value.trim();
+    const seriesName = folder;
+    const startChapter = parseInt(startChapterInput.value) || 1;
+
+
     if (!url) {
         showError('Please enter a URL');
         return;
     }
 
     if (!folder) {
-        showError('Please enter a folder name (series name)');
+        showError('Please enter a folder/series name');
         return;
     }
 
     // Set download in progress and update button immediately
-    isDownloadingChapter2 = true;
+    isDownloadingNovel = true;
     userStoppedDownload = false;
     downloadBtn.disabled = true;
     downloadSeriesBtn.disabled = true;
-    downloadSeries2Btn.textContent = '⏸️ Dừng';
-    downloadSeries2Btn.disabled = false;
+    downloadSeries2Btn.disabled = true;
+    downloadNovelBtn.textContent = '⏸️ Dừng';
+    downloadNovelBtn.disabled = false;
 
     addLog(`Starting download from: ${url}`, 'info');
 
     try {
-        const response = await fetch('/api/download-series-2', {
+        const response = await fetch('/api/download-novel-series', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -283,8 +440,7 @@ async function downloadSeries2() {
             body: JSON.stringify({
                 url: url,
                 folder: folder,
-                startChapter: startChapter,
-                seriesName: folder,
+                seriesName: seriesName,
             }),
         });
 
@@ -301,50 +457,46 @@ async function downloadSeries2() {
         }
 
         // Show success
-        addLog(`SUCCESS: Downloaded ${data.downloadedCount} images`, 'success');
+        addLog(`SUCCESS: Chapter ${data.chapter_number} - ${data.title}`, 'success');
+        showNotification('Chapter saved', `Chapter ${data.chapter_number} saved to database successfully.`);
 
-        // Update URL and Chapter Number for next download
+        // Refresh downloaded series combobox
+        await loadDownloadedSeries();
+
         if (data.nextLink) {
             urlInput.value = data.nextLink;
             startChapterInput.value = startChapter + 1;
-            
-            // Show notification if tab is not focused
-            showNotification('Chapter downloaded', `Chapter ${data.chapter} completed. Ready for next chapter.`);
-            
-            // Auto-continue to next chapter after 2 seconds (only if user didn't stop)
+
+            showNotification(
+                'Chapter saved',
+                `Ready for next chapter.`
+            );
+
             if (!userStoppedDownload) {
                 setTimeout(() => {
                     if (!userStoppedDownload) {
-                        downloadSeries2();
+                        downloadNovel();
                     }
                 }, 2000);
             }
         } else {
-            // No next link - series completed
-            showNotification('Series completed', `Chapter ${data.chapter} is the last chapter.`);
+            showNotification(
+                'Series completed',
+                `Chapter ${data.chapter_number} is the last chapter.`
+            );
         }
+
     } catch (error) {
-        console.error('Series 2 download error:', error);
+        console.error('Novel download error:', error);
         addLog(`ERROR: ${error.message}`, 'error');
         showError(`Error: ${error.message}`);
     } finally {
-        isDownloadingChapter2 = false;
+        isDownloadingNovel = false;
         downloadBtn.disabled = false;
         downloadSeriesBtn.disabled = false;
-        
-        // Update button state only if user stopped or no next chapter
-        if (userStoppedDownload) {
-            downloadSeries2Btn.textContent = '📚 Download Series 2';
-            downloadSeries2Btn.disabled = false;
-        } else {
-            // If auto-continuing, keep the button as is
-            // Otherwise reset to normal state
-            const hasNextChapter = completeSection.style.display !== 'none';
-            if (!hasNextChapter) {
-                downloadSeries2Btn.textContent = '📚 Download Series 2';
-                downloadSeries2Btn.disabled = false;
-            }
-        }
+        downloadSeries2Btn.disabled = false;
+        downloadNovelBtn.textContent = '📖 Download Novel';
+        downloadNovelBtn.disabled = false;
     }
 }
 
@@ -363,3 +515,8 @@ function showError(message) {
 
     console.error(message);
 }
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadDownloadedSeries();
+});

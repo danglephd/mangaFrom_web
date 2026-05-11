@@ -5,6 +5,8 @@ const dotenv = require('dotenv');
 const { chromium } = require('playwright');
 const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
+const { crawlAndSave } = require('./novel-from-web/main/novel-app');
+const { getNextChapterLink } = require('./utils/playwright');
 
 dotenv.config();
 const app = express();
@@ -54,6 +56,50 @@ if (!fs.existsSync(downloadsDir)) {
 // Root route - serve index.html
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ====== API: Get Downloaded Series (Latest 2 Chapters) ======
+app.get('/api/get-downloaded-series', (req, res) => {
+  const query = `
+    SELECT DISTINCT series_name, chapter, url
+    FROM download_history
+    ORDER BY series_name, chapter DESC
+  `;
+
+  db.all(query, [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching series:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Group by series and keep only latest 2 chapters
+    const grouped = {};
+    rows.forEach((row) => {
+      if (!grouped[row.series_name]) {
+        grouped[row.series_name] = [];
+      }
+      if (grouped[row.series_name].length < 2) {
+        grouped[row.series_name].push({
+          chapter: row.chapter,
+          url: row.url,
+        });
+      }
+    });
+
+    // Convert to array format for easier frontend use
+    const result = [];
+    Object.keys(grouped).forEach((seriesName) => {
+      grouped[seriesName].forEach((chapter) => {
+        result.push({
+          series_name: seriesName,
+          chapter: chapter.chapter,
+          url: chapter.url,
+        });
+      });
+    });
+
+    res.json({ data: result });
+  });
 });
 
 // ====== API: Download Series ======
@@ -296,6 +342,35 @@ app.post('/api/download-series-2', async (req, res) => {
   }
 });
 
+// ====== API: Download Novel Series (scrape and save to database) ======
+app.post('/api/download-novel-series', async (req, res) => {
+  try {
+    const { url, folder, startChapter = 1, seriesName = folder } = req.body;
+
+    if (!url || !folder) {
+      return res.status(400).json({ error: 'URL and folder are required' });
+    }
+
+    // Call crawlAndSave to scrape and save to database
+    const result = await crawlAndSave(url, folder, seriesName || folder);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json({
+      message: 'Chapter scraped and saved successfully',
+      chapter_number: result.chapter_number,
+      title: result.title,
+      success: true,
+      nextLink: result.nextLink,
+    });
+  } catch (error) {
+    console.error('Novel series download error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ====== Helper Functions ======
 
 // Download images from page and save them
@@ -416,42 +491,6 @@ function saveDownloadHistory(url, folder, seriesName, chapter) {
       console.log(`[History] Saved: ${folder} (Chapter ${chapter})`);
     }
   });
-}
-
-// Get next chapter link from page
-async function getNextChapterLink(page) {
-  try {
-    const nextLink = await page.evaluate(() => {
-      // Try common next button selectors
-      const selectors = [
-        'a[rel="next"]',
-        'a.next-chapter',
-        'a[aria-label*="Chap sau"]',
-        'a[href*="chap"]',
-      ];
-
-      for (const selector of selectors) {
-        const el = document.querySelector(selector);
-        if (el && el.href) return el.href;
-      }
-
-      // Fallback: find any link with "chap sau", "next" or "tiếp" in text
-      const links = Array.from(document.querySelectorAll('a'));
-      const nextBtn = links.find(
-        (a) =>
-          a.textContent.toLowerCase().includes('chap sau') ||
-          a.textContent.toLowerCase().includes('next') ||
-          a.textContent.toLowerCase().includes('tiếp')
-      );
-
-      return nextBtn?.href || null;
-    });
-
-    return nextLink;
-  } catch (error) {
-    console.log('Could not get next chapter link:', error.message);
-    return null;
-  }
 }
 
 // Filter & deduplicate images
