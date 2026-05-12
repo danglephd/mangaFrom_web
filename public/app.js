@@ -357,20 +357,22 @@ async function downloadSeries2() {
 
         // Refresh downloaded series combobox
         await loadDownloadedSeries();
+        showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
 
-        if (data.nextLink && !userStoppedDownload) {
+        if (data.nextLink){
             urlInput.value = data.nextLink;
             startChapterInput.value = startChapter + 1;
-            showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
-
-            // Chỉ schedule nếu user chưa stop
-            setTimeout(() => {
-                if (!userStoppedDownload && isDownloadingChapter2) {
-                    downloadSeries2();
-                }
-            }, 2000);
+            if(!userStoppedDownload) {
+                // Chỉ schedule nếu user chưa stop
+                setTimeout(() => {
+                    if (!userStoppedDownload && isDownloadingChapter2) {
+                        downloadSeries2();
+                    }
+                }, 2000);
+            }
         } else {
             isDownloadingChapter2 = false;
+            userStoppedDownload = true;
             showNotification('Series completed', `Chapter ${data.chapter} finished`);
         }
     } catch (error) {
