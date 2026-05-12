@@ -201,7 +201,8 @@ async function downloadImages() {
     addLog(`Starting download from: ${url}`, 'info');
 
     try {
-        const response = await fetch('/api/download', {
+        const response = await fetch('/api/download-series-mangadex', {
+        // const response = await fetch('/api/download', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

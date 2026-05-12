@@ -8,6 +8,9 @@ const sqlite3 = require('sqlite3').verbose();
 const { crawlAndSave } = require('./novel-from-web/main/novel-app');
 const { getNextChapterLink } = require('./utils/playwright');
 
+// MangaDex routes
+const mangadexRoutes = require('./routes/mangadex.routes');
+
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -567,6 +570,9 @@ function generateIndexHtml(folderPath, files) {
     console.error('Error copying template file:', err.message);
   }
 }
+
+// ====== Register MangaDex Routes ======
+app.use('/api', mangadexRoutes);
 
 // ====== Start Server ======
 app.listen(PORT, () => {
