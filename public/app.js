@@ -13,7 +13,7 @@ const copyHistoryBtn = document.getElementById('copyHistoryBtn');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
 let notificationPermissionRequested = false;
-let isDownloadingChapter2 = false;
+let isDownloadingSeries = false;
 let isDownloadingNovel = false;
 let userStoppedDownload = false;
 let downloadedSeriesData = [];
@@ -148,13 +148,20 @@ downloadBtn.addEventListener('click', async (e) => {
 
 // Download Series Button
 downloadSeriesBtn.addEventListener('click', async (e) => {
-    await requestNotificationPermission();
-    downloadSeries();
+    if (isDownloadingSeries) {
+        // User clicked Stop button while downloading
+        userStoppedDownload = true;
+        downloadSeriesBtn.disabled = true;
+        downloadSeriesBtn.textContent = '📚 Download Mangadex';
+    } else {
+        await requestNotificationPermission();
+        downloadSeriesMangadex();
+    }
 });
 
 // Download Series 2 Button
 downloadSeries2Btn.addEventListener('click', async (e) => {
-    if (isDownloadingChapter2) {
+    if (isDownloadingSeries) {
         // User clicked Stop button while downloading
         userStoppedDownload = true;
         downloadSeries2Btn.disabled = true;
@@ -201,8 +208,9 @@ async function downloadImages() {
     addLog(`Starting download from: ${url}`, 'info');
 
     try {
+        // const response = await fetch('/api/mangadex-get-manga', {
         const response = await fetch('/api/download-series-mangadex', {
-        // const response = await fetch('/api/download', {
+            // const response = await fetch('/api/download', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -229,6 +237,8 @@ async function downloadImages() {
 
         // Show success
         addLog(`SUCCESS: Downloaded ${data.downloadedCount} out of ${data.totalCount} images`, 'success');
+        addLog(`Manga ID: ${data.mangaId}, Chapter: ${data.currentChapter}, 
+            Volume: ${data.currentVolume}, Next Chapter: ${data.nextChapterUrl}`, 'info');
 
         // Show notification if tab is not focused
         showNotification('Download complete', `Downloaded ${data.downloadedCount} images`);
@@ -317,6 +327,89 @@ async function downloadSeries() {
     }
 }
 
+// Download Series MangaDex 
+async function downloadSeriesMangadex() {
+    ``
+    const url = urlInput.value.trim();
+    const folder = folderInput.value.trim();
+    const startChapter = parseInt(startChapterInput.value) || 1;
+
+    // Validation
+    if (!url || !folder) {
+        showError('Vui lòng nhập URL và tên folder');
+        return;
+    }
+
+    // Cập nhật UI
+    isDownloadingSeries = true;
+    userStoppedDownload = false;
+    updateButtonStates(true, true);
+
+    addLog(`Starting download from: ${url}`, 'info');
+
+    try {
+        const response = await fetch('/api/download-series-mangadex', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: url,
+                folder: folder,
+                startChapter: startChapter,
+                seriesName: folder,
+            }),
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            throw new Error('Invalid server response');
+        }
+
+        // Show success
+        addLog(`SUCCESS: Downloaded ${data.downloadedCount} out of ${data.totalCount} images`, 'success');
+        addLog(`Manga ID: ${data.mangaId}, Chapter: ${data.currentChapter}, 
+            Volume: ${data.currentVolume}, Next Chapter: ${data.nextChapterUrl}`, 'info');
+        if (data.error) throw new Error(data.error);
+
+        // Refresh downloaded series combobox
+        await loadDownloadedSeries();
+        showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
+
+        if (data.nextChapterUrl) {
+            urlInput.value = data.nextChapterUrl;
+            startChapterInput.value = startChapter + 1;
+            if (!userStoppedDownload) {
+                // Chỉ schedule nếu user chưa stop
+                setTimeout(() => {
+                    if (!userStoppedDownload && isDownloadingSeries) {
+                        downloadSeriesMangadex();
+                    }
+                }, 2000);
+            }
+        } else {
+            isDownloadingSeries = false;
+            userStoppedDownload = true;
+            showNotification('Series completed', `Chapter ${data.chapter} finished`);
+        }
+    } catch (error) {
+        console.error('Download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
+        showError(error.message);
+        isDownloadingSeries = false;
+        userStoppedDownload = true;
+    } finally {
+        // Luôn reset state nếu không auto-continue
+        if (userStoppedDownload || !isDownloadingSeries) {
+            updateButtonStates(false, true);
+        }
+    }
+}
+
 // Download Series 2 (Single Chapter with Auto-Update)
 async function downloadSeries2() {
     const url = urlInput.value.trim();
@@ -330,9 +423,9 @@ async function downloadSeries2() {
     }
 
     // Cập nhật UI
-    isDownloadingChapter2 = true;
+    isDownloadingSeries = true;
     userStoppedDownload = false;
-    updateButtonStates(true);
+    updateButtonStates(true, false);
 
     addLog(`Starting download from: ${url}`, 'info');
 
@@ -360,19 +453,19 @@ async function downloadSeries2() {
         await loadDownloadedSeries();
         showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
 
-        if (data.nextLink){
+        if (data.nextLink) {
             urlInput.value = data.nextLink;
             startChapterInput.value = startChapter + 1;
-            if(!userStoppedDownload) {
+            if (!userStoppedDownload) {
                 // Chỉ schedule nếu user chưa stop
                 setTimeout(() => {
-                    if (!userStoppedDownload && isDownloadingChapter2) {
+                    if (!userStoppedDownload && isDownloadingSeries) {
                         downloadSeries2();
                     }
                 }, 2000);
             }
         } else {
-            isDownloadingChapter2 = false;
+            isDownloadingSeries = false;
             userStoppedDownload = true;
             showNotification('Series completed', `Chapter ${data.chapter} finished`);
         }
@@ -380,28 +473,39 @@ async function downloadSeries2() {
         console.error('Download error:', error);
         addLog(`ERROR: ${error.message}`, 'error');
         showError(error.message);
-        isDownloadingChapter2 = false;
+        isDownloadingSeries = false;
         userStoppedDownload = true;
     } finally {
         // Luôn reset state nếu không auto-continue
-        if (userStoppedDownload || !isDownloadingChapter2) {
-            updateButtonStates(false);
+        if (userStoppedDownload || !isDownloadingSeries) {
+            updateButtonStates(false, false);
         }
     }
 }
 
 // Helper function
-function updateButtonStates(isDownloading) {
+function updateButtonStates(isDownloading, isMangaDex = true) {
     const disabled = isDownloading;
     downloadBtn.disabled = disabled;
-    downloadSeriesBtn.disabled = disabled;
     downloadNovelBtn.disabled = disabled;
-    if (userStoppedDownload) {
-        downloadSeries2Btn.disabled = false;
-        downloadSeries2Btn.textContent = '📚 Download Series 2';
+    if (isMangaDex) {
+        downloadSeries2Btn.disabled = disabled;
+        if (userStoppedDownload) {
+            downloadSeriesBtn.disabled = false;
+            downloadSeriesBtn.textContent = '📚 Download Mangadex';
+        } else {
+            downloadSeriesBtn.disabled = !disabled;
+            downloadSeriesBtn.textContent = disabled ? '⏸️ Dừng' : '📚 Download Mangadex';
+        }
     } else {
-        downloadSeries2Btn.disabled = !disabled;
-        downloadSeries2Btn.textContent = disabled ? '⏸️ Dừng' : '📚 Download Series 2';
+        downloadSeriesBtn.disabled = disabled;
+        if (userStoppedDownload) {
+            downloadSeries2Btn.disabled = false;
+            downloadSeries2Btn.textContent = '📚 Download Series 2';
+        } else {
+            downloadSeries2Btn.disabled = !disabled;
+            downloadSeries2Btn.textContent = disabled ? '⏸️ Dừng' : '📚 Download Series 2';
+        }
     }
 }
 

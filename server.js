@@ -7,41 +7,14 @@ const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
 const { crawlAndSave } = require('./novel-from-web/main/novel-app');
 const { getNextChapterLink } = require('./utils/playwright');
+const { saveDownloadHistory, db: database } = require('./src/services/database.service');
 
 // MangaDex routes
-const mangadexRoutes = require('./routes/mangadex.routes');
+const mangadexRoutes = require('./src/routes/mangadex.routes');
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Database setup
-const dbPath = path.join(__dirname, 'mangaFrom_web.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    // Create history table if it doesn't exist
-    db.run(`
-      CREATE TABLE IF NOT EXISTS download_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        url TEXT NOT NULL,
-        folder TEXT NOT NULL,
-        series_name TEXT NOT NULL,
-        chapter INTEGER NOT NULL,
-        timestamp TEXT NOT NULL,
-        UNIQUE(folder, url)
-      )
-    `, (err) => {
-      if (err) {
-        console.error('Error creating table:', err.message);
-      } else {
-        console.log('Download history table ready');
-      }
-    });
-  }
-});
 
 // In-memory store for downloaded chapters (serves as server-side tracking)
 const downloadedChapters = new Map();
@@ -69,7 +42,7 @@ app.get('/api/get-downloaded-series', (req, res) => {
     ORDER BY series_name, chapter DESC
   `;
 
-  db.all(query, [], (err, rows) => {
+  database.all(query, [], (err, rows) => {
     if (err) {
       console.error('Error fetching series:', err.message);
       return res.status(500).json({ error: err.message });
@@ -477,23 +450,6 @@ async function downloadImagesFromPage(page, options) {
     totalCount: filteredImages.length,
     folder: folder,
   };
-}
-
-// Save download history to database
-function saveDownloadHistory(url, folder, seriesName, chapter) {
-  const timestamp = new Date().toISOString();
-  const query = `
-    INSERT OR REPLACE INTO download_history (url, folder, series_name, chapter, timestamp)
-    VALUES (?, ?, ?, ?, ?)
-  `;
-  
-  db.run(query, [url, folder, seriesName, chapter, timestamp], (err) => {
-    if (err) {
-      console.error('Error saving history:', err.message);
-    } else {
-      console.log(`[History] Saved: ${folder} (Chapter ${chapter})`);
-    }
-  });
 }
 
 // Filter & deduplicate images
