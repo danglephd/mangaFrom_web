@@ -540,6 +540,7 @@ async function downloadSeries2() {
                 isDownloadingSeries = false;
                 userStoppedDownload = true;
                 showNotification('Series completed', `No more chapters available`);
+                addLog(`Series completed: ${result.folder}`, 'success');
             }
         } else if (result.status === 'failed') {
             throw new Error(result.error || 'Job failed');

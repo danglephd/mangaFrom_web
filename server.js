@@ -488,7 +488,10 @@ async function processDownloadSeriesJob(jobId, options) {
     console.log(`[Job ${jobId}] Getting next chapter link...`);
     const nextLink = await getNextChapterLink(page);
 
-    jobManager.updateJob(jobId, { progress: 90 });
+    jobManager.updateJob(jobId, {
+      progress: 90,
+      nextLink: nextLink,
+    });
 
     await browser.close();
 
