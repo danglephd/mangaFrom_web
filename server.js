@@ -111,9 +111,9 @@ app.get('/', (req, res) => {
 // ====== API: Get Downloaded Series (Latest 2 Chapters) ======
 app.get('/api/get-downloaded-series', (req, res) => {
   const query = `
-    SELECT DISTINCT series_name, chapter, url
+    SELECT DISTINCT series_name, chapter, url, timestamp
     FROM download_history
-    ORDER BY series_name, chapter DESC
+    ORDER BY timestamp DESC, series_name, chapter DESC
   `;
 
   database.all(query, [], (err, rows) => {
