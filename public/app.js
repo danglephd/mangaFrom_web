@@ -143,7 +143,8 @@ function showNotification(title = 'Download complete', body = 'Your images have 
 // Download Button
 downloadBtn.addEventListener('click', async (e) => {
     await requestNotificationPermission();
-    downloadImages();
+    // downloadImages();
+    getSeriesMangadexInfo();
 });
 
 // Download Series Button
@@ -186,6 +187,72 @@ downloadNovelBtn.addEventListener('click', async (e) => {
 });
 
 // Download Single Chapter
+async function getSeriesMangadexInfo() {
+    const url = urlInput.value.trim();
+    const folder = folderInput.value.trim();
+    const startChapter = parseInt(startChapterInput.value) || 1;
+
+    if (!url) {
+        showError('Please enter a URL');
+        return;
+    }
+
+    if (!folder) {
+        showError('Please enter a folder name');
+        return;
+    }
+
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = '⏳ Downloading...';
+    downloadSeriesBtn.disabled = true;
+
+    addLog(`Starting download from: ${url}`, 'info');
+
+    try {
+        const response = await fetch('/api/mangadex-get-manga', {
+            // const response = await fetch('/api/download-series-mangadex', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: url,
+                folder: folder,
+                startChapter: startChapter,
+                seriesName: folder,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+            addLog(`ERROR: ${data.error}`, 'error');
+            showError(`Error: ${data.error}`);
+            return;
+        }
+
+        // Show success
+        addLog(`SUCCESS`, 'success');
+        addLog(`Manga ID: ${data.mangaId}`, 'info'); 
+        addLog(`Chapter: ${data.currentChapter} `, 'info'); 
+        addLog(`Volume: ${data.currentVolume}, Next Chapter: ${data.nextChapterUrl}`, 'info');
+
+    } catch (error) {
+        console.error('Download error:', error);
+        addLog(`ERROR: ${error.message}`, 'error');
+        showError(`Error: ${error.message}`);
+    } finally {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = '⬇️ Download';
+        downloadSeriesBtn.disabled = false;
+    }
+}
+
+// Download Single Chapter
 async function downloadImages() {
     const url = urlInput.value.trim();
     const folder = folderInput.value.trim();
@@ -208,9 +275,7 @@ async function downloadImages() {
     addLog(`Starting download from: ${url}`, 'info');
 
     try {
-        // const response = await fetch('/api/mangadex-get-manga', {
-        const response = await fetch('/api/download-series-mangadex', {
-            // const response = await fetch('/api/download', {
+        const response = await fetch('/api/download', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -237,8 +302,10 @@ async function downloadImages() {
 
         // Show success
         addLog(`SUCCESS: Downloaded ${data.downloadedCount} out of ${data.totalCount} images`, 'success');
-        addLog(`Manga ID: ${data.mangaId}, Chapter: ${data.currentChapter}, 
-            Volume: ${data.currentVolume}, Next Chapter: ${data.nextChapterUrl}`, 'info');
+        addLog(`Manga ID: ${data.mangaId}`, 'info'); 
+        addLog(`Chapter: ${data.currentChapter} `, 'info'); 
+        addLog(`Volume: ${data.currentVolume}`, 'info'); 
+        addLog(`Next Chapter: ${data.nextChapterUrl}`, 'info');
 
         // Show notification if tab is not focused
         showNotification('Download complete', `Downloaded ${data.downloadedCount} images`);

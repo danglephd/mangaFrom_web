@@ -124,14 +124,9 @@ async function getSeriesMangadex(req, res) {
     return res.status(200).json({
       success: true,
       mangaId: result.mangaId,
-      mangaName: result.mangaName,
-      /** currentChapterInfor: {
-      /*  ChapterId: result.currentChapterId,
-        Chapter: result.currentChapter,
-        Volume: result.currentVolume,
-      },
-      */
-      chapterlist: result.chapterlist,
+      currentChapter: result.currentChapter,
+      currentVolume: result.currentVolume,
+      nextChapterUrl: result.nextChapterUrl,
     });
   } catch (error) {
     console.error('[Controller] Error:', error.message);  

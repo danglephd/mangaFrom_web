@@ -73,7 +73,7 @@ async function downloadMangaDexChapter(chapterUrl, seriesName, folderName, chapt
       mangaId,
       parsedChapter,
       parsedChapter.translatedLanguage,
-      chapterIndex
+      chapterIndex -1 // Pass chapterIndex - 1 to skip current chapter if needed
     );
 
     return {
@@ -111,7 +111,7 @@ async function getMangaDexChapter(chapterUrl, startChapter = 1) {
 
     // Parse chapter data
     const parsedChapter = parseChapterData(chapterData);
-    console.log(`[MangaDex] Chapter: ${parsedChapter.chapter}, Volume: ${parsedChapter.volume}, Language: ${parsedChapter.translatedLanguage}, relationships: ${chapterData.relationships}`);
+    console.log(`[MangaDex] Chapter: ${parsedChapter.chapter}, Volume: ${parsedChapter.volume}, Language: ${parsedChapter.translatedLanguage}`);
     
     // Extract manga ID
     const mangaId = getMangaIdFromRelationships(chapterData.relationships);
@@ -120,24 +120,24 @@ async function getMangaDexChapter(chapterUrl, startChapter = 1) {
     }
     console.log(`[MangaDex] Manga ID: ${mangaId}`);
 
-    // Get list of all chapters for manga    
-    const chapters = await getAllChapters(mangaId, parsedChapter.translatedLanguage, startChapter);
-    console.log(`[MangaDex] Total chapters for manga: ${chapters.length}`);
+    // // Get list of all chapters for manga    
+    // const chapters = await getAllChapters(mangaId, parsedChapter.translatedLanguage, startChapter);
+    // console.log(`[MangaDex] Total chapters for manga: ${chapters.length}`);
 
-      // mangaId: result.mangaId,
-      // mangaName: result.mangaName,
-      // /** currentChapterInfor: {
-      // /*  ChapterId: result.currentChapterId,
-      //   Chapter: result.currentChapter,
-      //   Volume: result.currentVolume,
-      // },
-      // */
-      // chapterlist: result.chapterlist,
+    const nextChapterUrl = await findNextChapterUrl(
+      chapterId,
+      mangaId,
+      parsedChapter,
+      parsedChapter.translatedLanguage,
+      startChapter - 1 // Pass startChapter - 1 to skip current chapter if needed
+    );
+
     return {
       success: true,
       mangaId,
-      // parsedChapter.
-      chapterlist: chapters,
+      currentChapter: parsedChapter.chapter,
+      currentVolume: parsedChapter.volume,
+      nextChapterUrl: nextChapterUrl,
     };
   } catch (error) {
     throw new ApiError(

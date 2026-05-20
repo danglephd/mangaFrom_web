@@ -7,6 +7,7 @@ async function getNextChapterLink(page) {
       const selectors = [
         'a[rel="next"]',
         'a.next-chapter',
+        'a.link-next-chap',
         'a[aria-label*="Chap sau"]',
         'a[href*="chap"]',
       ];
