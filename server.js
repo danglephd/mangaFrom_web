@@ -19,6 +19,80 @@ const PORT = process.env.PORT || 3000;
 // In-memory store for downloaded chapters (serves as server-side tracking)
 const downloadedChapters = new Map();
 
+// ====== Job Manager System ======
+// In-memory job queue and status tracker
+const jobManager = {
+  jobs: new Map(), // jobId -> { status, progress, result, error, createdAt, updatedAt }
+  
+  // Generate unique job ID
+  generateJobId() {
+    return `job-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  },
+
+  // Create new job
+  createJob() {
+    const jobId = this.generateJobId();
+    this.jobs.set(jobId, {
+      jobId,
+      status: 'processing', // 'processing', 'completed', 'failed'
+      progress: 0, // 0-100
+      downloadedCount: 0,
+      totalCount: 0,
+      folder: '',
+      nextLink: null,
+      result: null,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    this.cleanupOldJobs();
+    return jobId;
+  },
+
+  // Get job status
+  getJob(jobId) {
+    return this.jobs.get(jobId);
+  },
+
+  // Update job progress
+  updateJob(jobId, updates) {
+    const job = this.jobs.get(jobId);
+    if (job) {
+      Object.assign(job, updates, { updatedAt: Date.now() });
+    }
+  },
+
+  // Mark job as completed
+  completeJob(jobId, result) {
+    this.updateJob(jobId, {
+      status: 'completed',
+      result,
+      progress: 100,
+    });
+  },
+
+  // Mark job as failed
+  failJob(jobId, error) {
+    this.updateJob(jobId, {
+      status: 'failed',
+      error: error.message || String(error),
+    });
+  },
+
+  // Auto cleanup jobs older than 24 hours
+  cleanupOldJobs() {
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+    for (const [jobId, job] of this.jobs) {
+      if (now - job.createdAt > maxAge) {
+        this.jobs.delete(jobId);
+        console.log(`[Job Manager] Cleaned up old job: ${jobId}`);
+      }
+    }
+  },
+};
+
 // Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
@@ -272,51 +346,65 @@ app.post('/api/download', async (req, res) => {
   }
 });
 
-// ====== API: Download Series 2 (Single Chapter with Next Link) ======
+// ====== API: Download Series 2 (Background Job Processing) ======
 app.post('/api/download-series-2', async (req, res) => {
   try {
     const { url, folder, startChapter = 1, seriesName = folder } = req.body;
-    let chapterIndex = parseInt(startChapter) || 1;
 
+    // Validate input
     if (!url || !folder) {
       return res.status(400).json({ error: 'URL and folder are required' });
     }
 
-    // Create chapter folder with format Chap_XXX
-    const chapterFolder = `${folder}/Chap_${String(chapterIndex).padStart(3, '0')}`;
+    // Create new job
+    const jobId = jobManager.createJob();
 
-    // Extract images using helper function
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
-
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-
-    // Download images for this chapter
-    const result = await downloadImagesFromPage(page, {
-      url: url,
-      folder: chapterFolder,
-      seriesName,
-      chapter: chapterIndex,
+    // Respond immediately with jobId
+    res.json({
+      jobId: jobId,
+      status: 'processing',
+      message: 'Download job started. Poll /api/job-status/:jobId to check progress',
     });
 
-    // Get next chapter link
-    const nextLink = await getNextChapterLink(page);
-
-    await browser.close();
-
-    res.json({
-      message: 'Chapter download completed',
-      chapter: chapterIndex,
-      folder: chapterFolder,
-      downloadedCount: result.downloadedCount,
-      totalCount: result.totalCount,
-      nextLink: nextLink,
+    // Start background processing (non-blocking)
+    processDownloadSeriesJob(jobId, {
+      url,
+      folder,
+      startChapter: parseInt(startChapter) || 1,
+      seriesName: seriesName || folder,
+    }).catch((err) => {
+      console.error(`[Job ${jobId}] Unexpected error:`, err);
+      jobManager.failJob(jobId, err);
     });
   } catch (error) {
     console.error('Series 2 download error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+// ====== API: Check Job Status ======
+app.get('/api/job-status/:jobId', (req, res) => {
+  const { jobId } = req.params;
+
+  const job = jobManager.getJob(jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  // Return job status
+  res.json({
+    jobId: job.jobId,
+    status: job.status, // 'processing', 'completed', 'failed'
+    progress: job.progress, // 0-100
+    downloadedCount: job.downloadedCount,
+    totalCount: job.totalCount,
+    folder: job.folder,
+    nextLink: job.nextLink,
+    error: job.error,
+    result: job.status === 'completed' ? job.result : null,
+  });
+});
+
 
 // ====== API: Download Novel Series (scrape and save to database) ======
 app.post('/api/download-novel-series', async (req, res) => {
@@ -349,9 +437,89 @@ app.post('/api/download-novel-series', async (req, res) => {
 
 // ====== Helper Functions ======
 
+// Background async job: Process download-series-2
+async function processDownloadSeriesJob(jobId, options) {
+  const { url, folder, startChapter, seriesName } = options;
+  let browser;
+
+  try {
+    jobManager.updateJob(jobId, {
+      folder,
+      progress: 5,
+    });
+
+    console.log(`[Job ${jobId}] Starting background processing...`);
+
+    // Launch browser
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+
+    jobManager.updateJob(jobId, { progress: 10 });
+
+    // Navigate to URL
+    console.log(`[Job ${jobId}] Navigating to ${url}`);
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+
+    jobManager.updateJob(jobId, { progress: 20 });
+
+    // Create chapter folder with format Chap_XXX
+    let chapterIndex = startChapter;
+    const chapterFolder = `${folder}/Chap_${String(chapterIndex).padStart(3, '0')}`;
+
+    // Download images for this chapter
+    console.log(`[Job ${jobId}] Downloading images for chapter ${chapterIndex}...`);
+    jobManager.updateJob(jobId, { progress: 30 });
+
+    const result = await downloadImagesFromPage(page, {
+      url: url,
+      folder: chapterFolder,
+      seriesName,
+      chapter: chapterIndex,
+      jobId, // Pass jobId to update progress
+    });
+
+    jobManager.updateJob(jobId, {
+      downloadedCount: result.downloadedCount,
+      totalCount: result.totalCount,
+      progress: 80,
+    });
+
+    // Get next chapter link
+    console.log(`[Job ${jobId}] Getting next chapter link...`);
+    const nextLink = await getNextChapterLink(page);
+
+    jobManager.updateJob(jobId, { progress: 90 });
+
+    await browser.close();
+
+    // Mark job as completed
+    jobManager.completeJob(jobId, {
+      message: 'Chapter download completed',
+      chapter: chapterIndex,
+      folder: chapterFolder,
+      downloadedCount: result.downloadedCount,
+      totalCount: result.totalCount,
+      nextLink: nextLink,
+    });
+
+    console.log(`[Job ${jobId}] Completed successfully`);
+  } catch (error) {
+    console.error(`[Job ${jobId}] Error during processing:`, error);
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {
+        console.error(`[Job ${jobId}] Error closing browser:`, e);
+      }
+    }
+    jobManager.failJob(jobId, error);
+  }
+}
+
+
 // Download images from page and save them
 async function downloadImagesFromPage(page, options) {
-  const { url, folder, seriesName = '', chapter = 0 } = options;
+  const { url, folder, seriesName = '', chapter = 0, jobId = null } = options;
   const folderPath = path.join(downloadsDir, folder);
 
   // Create folder if not exists
@@ -419,6 +587,16 @@ async function downloadImagesFromPage(page, options) {
         downloaded = true;
         consecutiveFailures = 0;
         console.log(`[Downloaded] ${folder}: ${filename}`);
+
+        // Update job progress if jobId provided
+        if (jobId) {
+          const currentProgress = 30 + Math.floor((i / filteredImages.length) * 50);
+          jobManager.updateJob(jobId, {
+            progress: Math.min(currentProgress, 79),
+            downloadedCount: downloadedFiles.length,
+            totalCount: filteredImages.length,
+          });
+        }
       } catch (error) {
         retries--;
         if (retries < 0) {

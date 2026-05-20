@@ -477,7 +477,7 @@ async function downloadSeriesMangadex() {
     }
 }
 
-// Download Series 2 (Single Chapter with Auto-Update)
+// Download Series 2 (Background Job with Polling)
 async function downloadSeries2() {
     const url = urlInput.value.trim();
     const folder = folderInput.value.trim();
@@ -489,7 +489,7 @@ async function downloadSeries2() {
         return;
     }
 
-    // Cập nhật UI
+    // Update UI
     isDownloadingSeries = true;
     userStoppedDownload = false;
     updateButtonStates(true, false);
@@ -497,6 +497,7 @@ async function downloadSeries2() {
     addLog(`Starting download from: ${url}`, 'info');
 
     try {
+        // Step 1: Send download request and get jobId
         const response = await fetch('/api/download-series-2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -505,36 +506,43 @@ async function downloadSeries2() {
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        let data;
-        try {
-            data = await response.json();
-        } catch (e) {
-            throw new Error('Invalid server response');
-        }
-
+        const data = await response.json();
         if (data.error) throw new Error(data.error);
 
-        addLog(`SUCCESS: Downloaded ${data.downloadedCount} images`, 'success');
+        const jobId = data.jobId;
+        addLog(`Job started: ${jobId}`, 'info');
+        addLog(`Polling for progress every 3 seconds...`, 'info');
 
-        // Refresh downloaded series combobox
-        await loadDownloadedSeries();
-        showNotification('Chapter downloaded', `Chapter ${data.chapter} ready`);
+        // Step 2: Poll job status until completion
+        const result = await pollJobStatus(jobId, 3000); // Poll every 3 seconds
 
-        if (data.nextLink) {
-            urlInput.value = data.nextLink;
-            startChapterInput.value = startChapter + 1;
-            if (!userStoppedDownload) {
-                // Chỉ schedule nếu user chưa stop
-                setTimeout(() => {
-                    if (!userStoppedDownload && isDownloadingSeries) {
-                        downloadSeries2();
-                    }
-                }, 2000);
+        // Step 3: Handle completion
+        if (result.status === 'completed') {
+            addLog(`SUCCESS: Downloaded ${result.downloadedCount} out of ${result.totalCount} images`, 'success');
+            addLog(`Folder: ${result.folder}`, 'success');
+            
+            // Refresh downloaded series combobox
+            await loadDownloadedSeries();
+            showNotification('Chapter downloaded', `Chapter downloaded successfully`);
+
+            if (result.nextLink) {
+                urlInput.value = result.nextLink;
+                startChapterInput.value = startChapter + 1;
+                if (!userStoppedDownload) {
+                    // Auto continue to next chapter
+                    setTimeout(() => {
+                        if (!userStoppedDownload && isDownloadingSeries) {
+                            downloadSeries2();
+                        }
+                    }, 2000);
+                }
+            } else {
+                isDownloadingSeries = false;
+                userStoppedDownload = true;
+                showNotification('Series completed', `No more chapters available`);
             }
-        } else {
-            isDownloadingSeries = false;
-            userStoppedDownload = true;
-            showNotification('Series completed', `Chapter ${data.chapter} finished`);
+        } else if (result.status === 'failed') {
+            throw new Error(result.error || 'Job failed');
         }
     } catch (error) {
         console.error('Download error:', error);
@@ -543,12 +551,61 @@ async function downloadSeries2() {
         isDownloadingSeries = false;
         userStoppedDownload = true;
     } finally {
-        // Luôn reset state nếu không auto-continue
+        // Reset state if not auto-continuing
         if (userStoppedDownload || !isDownloadingSeries) {
             updateButtonStates(false, false);
         }
     }
 }
+
+// Helper function: Poll job status
+async function pollJobStatus(jobId, pollingInterval = 3000) {
+    return new Promise((resolve, reject) => {
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/job-status/${jobId}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const job = await response.json();
+                
+                // Update progress log
+                addLog(`[${job.status}] Progress: ${job.progress}% (${job.downloadedCount}/${job.totalCount} images)`, 'info');
+
+                // Check if job is complete
+                if (job.status === 'completed' || job.status === 'failed') {
+                    clearInterval(pollInterval);
+                    
+                    if (job.status === 'completed') {
+                        // Return result data
+                        resolve({
+                            status: 'completed',
+                            downloadedCount: job.downloadedCount,
+                            totalCount: job.totalCount,
+                            folder: job.folder,
+                            nextLink: job.nextLink,
+                            result: job.result,
+                        });
+                    } else {
+                        resolve({
+                            status: 'failed',
+                            error: job.error,
+                        });
+                    }
+                }
+            } catch (error) {
+                clearInterval(pollInterval);
+                reject(error);
+            }
+        }, pollingInterval);
+
+        // Timeout after 30 minutes
+        setTimeout(() => {
+            clearInterval(pollInterval);
+            reject(new Error('Job polling timeout (30 minutes)'));
+        }, 30 * 60 * 1000);
+    });
+}
+
 
 // Helper function
 function updateButtonStates(isDownloading, isMangaDex = true) {
