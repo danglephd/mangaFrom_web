@@ -463,6 +463,11 @@ async function downloadSeriesMangadex() {
                             downloadSeriesMangadex();
                         }
                     }, 2000);
+                } else {
+                    isDownloadingSeries = false;
+                    userStoppedDownload = true;
+                    showNotification('Series completed', `Reached end chapter limit`);
+                    addLog(`Series completed: ${result.folder}`, 'success');
                 }
             }
         } else {
@@ -545,6 +550,11 @@ async function downloadSeries2() {
                                 downloadSeries2();
                             }
                         }, 2000);
+                    } else {
+                        isDownloadingSeries = false;
+                        userStoppedDownload = true;
+                        showNotification('Series completed', `Reached end chapter limit`);
+                        addLog(`Series completed: ${result.folder}`, 'success');
                     }
                 }
             } else {
@@ -722,6 +732,11 @@ async function downloadNovel() {
                             downloadNovel();
                         }
                     }, 2000);
+                } else {
+                    isDownloadingSeries = false;
+                    userStoppedDownload = true;
+                    showNotification('Series completed', `Reached end chapter limit`);
+                    addLog(`Series completed: ${result.folder}`, 'success');
                 }
             }
         } else {
