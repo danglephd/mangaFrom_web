@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manga/Comic Image Downloader</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="container">
         <header class="header">
@@ -19,47 +21,26 @@
 
                 <div class="form-group">
                     <label for="url">Page URL *</label>
-                    <input
-                        type="text"
-                        id="url"
-                        placeholder="https://example.com/chapter/123"
-                        required
-                    />
+                    <input type="text" id="url" placeholder="https://example.com/chapter/123" required />
+                    <button id="openLinkBtn" class="btn btn-secondary">Open</button>
                     <small>Paste the URL of the manga/comic chapter page</small>
                 </div>
 
                 <div class="form-group">
                     <label for="folder">Folder Name / Series Name *</label>
-                    <input
-                        type="text"
-                        id="folder"
-                        placeholder="my-series-name"
-                        required
-                    />
+                    <input type="text" id="folder" placeholder="my-series-name" required />
                     <small>Name for the series folder</small>
                 </div>
 
                 <div class="form-group">
                     <label for="startChapter">Start Chapter Number (Series Only)</label>
-                    <input
-                        type="number"
-                        id="startChapter"
-                        placeholder="1"
-                        min="1"
-                        value="1"
-                    />
+                    <input type="number" id="startChapter" placeholder="1" min="1" value="1" />
                     <small>Chapter number to start from (for Download Series)</small>
                 </div>
 
                 <div class="form-group">
                     <label for="endChapter">End Chapter Number (Series Only)</label>
-                    <input
-                        type="number"
-                        id="endChapter"
-                        placeholder="10"
-                        min="1"
-                        value="10"
-                    />
+                    <input type="number" id="endChapter" placeholder="10" min="1" value="10" />
                     <small>Chapter number to end at (for Download Series)</small>
                 </div>
 
@@ -104,4 +85,5 @@
 
     <script src="app.js"></script>
 </body>
+
 </html>

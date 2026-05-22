@@ -1,5 +1,6 @@
 // Dom Elements
 const urlInput = document.getElementById('url');
+const openLinkBtn = document.getElementById('openLinkBtn');
 const folderInput = document.getElementById('folder');
 const startChapterInput = document.getElementById('startChapter');
 const endChapterInput = document.getElementById('endChapter');
@@ -780,3 +781,20 @@ function showError(message) {
 document.addEventListener('DOMContentLoaded', () => {
     loadDownloadedSeries();
 });
+
+
+function updateButtonState() {
+    // openLinkBtn.disabled = !urlInput.value.trim();
+}
+
+urlInput.addEventListener('input', updateButtonState);
+
+openLinkBtn.addEventListener('click', () => {
+    const url = urlInput.value.trim();
+
+    if (url) {
+        window.open(url, '_blank');
+    }
+});
+
+updateButtonState();

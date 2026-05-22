@@ -445,3 +445,19 @@ small {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(99, 102, 241, 0.5);
 }
+
+
+.url-input-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.url-input-group input {
+    flex: 1;
+}
+
+#openLinkBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
