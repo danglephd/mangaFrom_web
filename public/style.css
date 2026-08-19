@@ -57,7 +57,7 @@ body {
 /* Main Content */
 .main-content {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     gap: 30px;
 }
 
@@ -197,7 +197,7 @@ small {
 }
 
 .history-container {
-    height: 300px;
+    height: 100%;
     overflow-y: auto;
     background: rgba(15, 23, 42, 0.8);
     border: 1px solid var(--border-color);

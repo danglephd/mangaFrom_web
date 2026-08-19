@@ -17,12 +17,14 @@
 
         <main class="main-content">
             <section class="input-section">
-                <h2>Step 1: Configure</h2>
+                <h2>Section 1: Configure</h2>
 
                 <div class="form-group">
                     <label for="url">Page URL *</label>
-                    <input type="text" id="url" placeholder="https://example.com/chapter/123" required />
-                    <button id="openLinkBtn" class="btn btn-secondary">Open</button>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="url" placeholder="https://example.com/chapter/123" required/>
+                        <button id="openLinkBtn" class="btn btn-secondary">Open</button>
+                    </div>
                     <small>Paste the URL of the manga/comic chapter page</small>
                 </div>
 
@@ -69,7 +71,7 @@
             </section>
 
             <section id="historySection" class="history-section">
-                <h2>History Log</h2>
+                <h2>Section 2: History Log</h2>
                 <div id="historyContainer" class="history-container"></div>
                 <div class="history-actions">
                     <button id="copyHistoryBtn" class="btn btn-secondary">📋 Copy</button>
