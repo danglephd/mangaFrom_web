@@ -40,25 +40,25 @@ if (/\s/.test(TEN_PROJECT)) {
     fail('ERROR: ten_project must not contain spaces.');
 }
 
-logStep('[1/9]', 'Checking Firebase Service Account...');
+logStep('[1/10]', 'Checking Firebase Service Account...');
 if (!fs.existsSync(SERVICE_ACCOUNT)) {
     fail(`ERROR: Service Account not found: ${SERVICE_ACCOUNT}`);
 }
 console.log('✓ Service account found\n');
 
-logStep('[2/9]', 'Checking source folder...');
+logStep('[2/10]', 'Checking source folder...');
 if (!fs.existsSync(SOURCE_DIR)) {
     fail(`ERROR: Source folder not found: ${SOURCE_DIR}`);
 }
 console.log(`✓ Source folder found: ${SOURCE_DIR}\n`);
 
-logStep('[3/9]', 'Checking project template...');
+logStep('[3/10]', 'Checking project template...');
 if (!fs.existsSync(TEMPLATE_DIR)) {
     fail(`ERROR: Project template not found: ${TEMPLATE_DIR}`);
 }
 console.log('✓ Template found\n');
 
-logStep('[4/9]', 'Checking target project directory...');
+logStep('[4/10]', 'Checking target project directory...');
 if (fs.existsSync(TARGET_DIR)) {
     console.log(`WARN: Target project already exists: ${TARGET_DIR}`);
     //remove the target directory if it exists
@@ -66,7 +66,7 @@ if (fs.existsSync(TARGET_DIR)) {
 }
 console.log('✓ Target directory available\n');
 
-logStep('[5/9]', 'Copying project template...');
+logStep('[5/10]', 'Copying project template...');
 try {
     fs.cpSync(TEMPLATE_DIR, TARGET_DIR, { recursive: true });
     console.log(`✓ Copied template to: ${TARGET_DIR}\n`);
@@ -74,7 +74,7 @@ try {
     fail(`ERROR: Failed to copy template: ${error.message}`);
 }
 
-logStep('[6/9]', 'Copying downloaded content into public folder...');
+logStep('[6/10]', 'Copying downloaded content into public folder...');
 try {
     fs.rmSync(TARGET_PUBLIC, { recursive: true, force: true });
     fs.mkdirSync(TARGET_PUBLIC, { recursive: true });
@@ -88,7 +88,7 @@ try {
     fail(`ERROR: Failed to copy downloaded content: ${error.message}`);
 }
 
-logStep('[7/9]', 'Updating package.json...');
+logStep('[7/10]', 'Updating package.json...');
 try {
     const packageJsonPath = path.join(TARGET_DIR, 'package.json');
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -99,7 +99,7 @@ try {
     fail(`ERROR: Failed to update package.json: ${error.message}`);
 }
 
-logStep('[8/9]', 'Updating .firebaserc...');
+logStep('[8/10]', 'Updating .firebaserc...');
 try {
     const firebaseRcPath = path.join(TARGET_DIR, '.firebaserc');
     const firebaseRc = JSON.parse(fs.readFileSync(firebaseRcPath, 'utf8'));
@@ -111,7 +111,7 @@ try {
     fail(`ERROR: Failed to update .firebaserc: ${error.message}`);
 }
 
-logStep('[9/9]', 'Verifying Firebase project and deploying...');
+logStep('[9/10]', 'Verifying Firebase project and deploying...');
 try {
     const nodeVersion = execSync('node --version', { encoding: 'utf-8' }).trim();
     console.log(`Node version: ${nodeVersion}`);
@@ -124,13 +124,6 @@ try {
         GOOGLE_APPLICATION_CREDENTIALS: SERVICE_ACCOUNT
     };
 
-    //   const projectListOutput = execSync('firebase projects:list --json', {
-    //     cwd: SCRIPT_DIR,
-    //     env: firebaseEnv,
-    //     encoding: 'utf-8',
-    //     stdio: 'pipe'
-    //   }).trim();
-
     // Build the project before deploying
     execSync('yarn build', {
         cwd: TARGET_DIR,
@@ -138,18 +131,6 @@ try {
         stdio: 'inherit'
     });
     
-    //   const projectList = JSON.parse(projectListOutput || '{"projects":[]}');
-    //   const projectIds = (projectList.projects || []).map((project) => project.projectId || project.name || project.id).filter(Boolean);
-
-    //   //ghi log 
-    //   console.log(`Project IDs: ${projectIds.join(', ')}`);
-
-    //   if (!projectIds.includes(TEN_PROJECT)) {
-    //     fail(`ERROR: Firebase project '${TEN_PROJECT}' does not exist. Create it in Firebase Console first, then rerun this script.`);
-    //   }
-
-    //   console.log(`✓ Firebase project '${TEN_PROJECT}' found\n`);
-
     console.log('\n[DEPLOY] Running firebase deploy...');
     execSync('firebase deploy', {
         cwd: TARGET_DIR,
@@ -170,4 +151,12 @@ try {
     console.error(error.message || error.stderr || error.toString());
     console.error('');
     process.exit(1);
+}
+
+logStep('[10/9]', 'Cleaning up temporary directories...');
+try {
+    fs.rmSync(TARGET_DIR, { recursive: true, force: true });
+    console.log(`✓ Cleaned up temporary directory: ${TARGET_DIR}\n`);
+} catch (error) {
+    fail(`ERROR: Failed to clean up temporary directory: ${error.message}`);
 }
